@@ -446,6 +446,31 @@ static void msm_restart_prepare(const char *cmd)
 		#ifdef OPLUS_FEATURE_AGINGTEST
 		//xiaofan.yang@PSW.TECH.AgingTest, 2019/01/07,Add for factory agingtest
 		} else if(!strcmp(cmd, "sbllowmemtest")){
+		} else if (!strncmp(cmd, "charge_reset", 12)) {
+			/*
+			 * Off-mode charging: the "chargerlogo" daemon reboots
+			 * with this command to re-arm the low-power charging
+			 * loop. Tag the reboot so ABL re-enters chargerlogo
+			 * instead of doing a normal boot into Android.
+			 */
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_CHARGE_RESET);
+			__raw_writel(0x77665526, restart_reason);
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_DIMMING_BOOT_SUPPORT)
+		} else if (!strncmp(cmd, "FOTA LCD off", 12)) {
+				qpnp_pon_set_restart_reason(
+								PON_RESTART_REASON_FOTA_LCD_OFF);
+				__raw_writel(0x77665560, restart_reason);
+		} else if (!strncmp(cmd, "FOTA OUT LCD off", 16)) {
+				qpnp_pon_set_restart_reason(
+								PON_RESTART_REASON_FOTA_OUT_LCD_OFF);
+				__raw_writel(0x77665561, restart_reason);
+		} else if (!strncmp(cmd, "LCD off", 7)) {
+				qpnp_pon_set_restart_reason(
+								PON_RESTART_REASON_LCD_OFF);
+				__raw_writel(0x77665562, restart_reason);
+#endif
+		} else if (!strncmp(cmd, "opid mismatched", 15)) {
 			qpnp_pon_set_restart_reason(
 					PON_RESTART_REASON_SBL_DDR_CUS);
 			__raw_writel(0x7766550b, restart_reason);
@@ -470,7 +495,7 @@ static void msm_restart_prepare(const char *cmd)
 					     restart_reason);
 		} else if (!strncmp(cmd, "edl", 3)) {
 			enable_emergency_dload_mode();
-		} 
+		}
 #ifdef VENDOR_EDIT
 /*xing.xing@BSP.Bootloader.Bootflow, 2019/04/11, Add for oppo boot mode*/
 		else if (!strncmp(cmd, "rf", 2)) {
