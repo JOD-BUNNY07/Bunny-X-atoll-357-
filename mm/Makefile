@@ -130,3 +130,4 @@ obj-$(CONFIG_PHYSICAL_ANTI_FRAGMENTATION) += multi_freearea.o
 #if defined(OPLUS_FEATURE_VIRTUAL_RESERVE_MEMORY)
 obj-$(CONFIG_VIRTUAL_RESERVE_MEMORY) += resmap_account.o
 #endif /*defined(OPLUS_FEATURE_VIRTUAL_RESERVE_MEMORY)
+obj-$(CONFIG_OOM_SCORE_NOTIFIER) += oom_score_notifier.o
