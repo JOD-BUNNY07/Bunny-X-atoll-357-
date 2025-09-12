@@ -219,6 +219,15 @@ uint __read_mostly sched_burst_penalty_scale    = 1280;
 uint __read_mostly sched_burst_cache_lifetime   = 60000000;
 #endif
 
+#ifdef CONFIG_SCHED_BORE
+uint __read_mostly sched_burst_smoothness_long  = 1;
+uint __read_mostly sched_burst_smoothness_short = 0;
+uint __read_mostly sched_burst_fork_atavistic   = 2;
+uint __read_mostly sched_burst_penalty_offset   = 22;
+uint __read_mostly sched_burst_penalty_scale    = 1280;
+uint __read_mostly sched_burst_cache_lifetime   = 60000000;
+#endif
+
 /*
  * The margin used when comparing utilization with CPU capacity:
  * util * margin < capacity * 1024
@@ -964,7 +973,8 @@ static void update_burst_score(struct sched_entity *se) {
 	prio = p->static_prio - MAX_RT_PRIO;
 	prev_prio = min(39, prio + (s32)se->burst_score);
 	if (!(p->flags & PF_KTHREAD && sched_burst_exclude_kthreads))
-		se->burst_score = se->burst_penalty >> 2;	
+		se->burst_score = se->burst_penalty >> 2;
+	se->burst_score = se->burst_penalty >> 2;
 	new_prio = min(39, prio + (s32)se->burst_score);
 	if (new_prio != prev_prio)
 		reweight_task(p, new_prio);
