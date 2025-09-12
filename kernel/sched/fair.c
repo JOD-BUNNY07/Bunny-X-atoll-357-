@@ -220,6 +220,7 @@ uint __read_mostly sched_burst_cache_lifetime   = 60000000;
 #endif
 
 #ifdef CONFIG_SCHED_BORE
+uint __read_mostly sched_burst_exclude_kthreads = 1;
 uint __read_mostly sched_burst_smoothness_long  = 1;
 uint __read_mostly sched_burst_smoothness_short = 1;
 uint __read_mostly sched_burst_fork_atavistic   = 0;
@@ -974,7 +975,6 @@ static void update_burst_score(struct sched_entity *se) {
 	prev_prio = min(39, prio + (s32)se->burst_score);
 	if (!(p->flags & PF_KTHREAD && sched_burst_exclude_kthreads))
 		se->burst_score = se->burst_penalty >> 2;
-	se->burst_score = se->burst_penalty >> 2;
 	new_prio = min(39, prio + (s32)se->burst_score);
 	if (new_prio != prev_prio)
 		reweight_task(p, new_prio);
