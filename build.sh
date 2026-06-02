@@ -109,27 +109,39 @@ echo "========================================"
 mkdir -p toolchains
 
 # =========================================
+# =========================================
 # EXACT PROJECT INFINITY X CLANG
 # clang-r563880c
 # =========================================
 
-if [ ! -d "$CLANG_DIR" ]; then
-    git clone --depth=1 \
-        https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
-        "$CLANG_DIR"
-fi
+rm -rf "$CLANG_DIR"
 
-CLANG_BIN=$(find "$CLANG_DIR" \
-    -type d \
-    -name "bin" | grep "clang-r563880c" | head -n 1)
+mkdir -p "$CLANG_DIR"
 
-if [ -z "$CLANG_BIN" ]; then
+cd "$CLANG_DIR"
+
+git init
+
+git remote add origin \
+    https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86
+
+git sparse-checkout init --cone
+
+git sparse-checkout set clang-r563880c
+
+git pull --depth=1 origin master
+
+cd "$WORKDIR"
+
+CLANG_BIN="$CLANG_DIR/clang-r563880c/bin"
+
+if [ ! -d "$CLANG_BIN" ]; then
+
     echo "========================================"
     echo "❌ clang-r563880c NOT FOUND"
     echo "========================================"
 
-    echo "Available Clang Versions:"
-    find "$CLANG_DIR" -maxdepth 1 -type d -name "clang-*"
+    find "$CLANG_DIR" -maxdepth 2 -type d
 
     exit 1
 fi
