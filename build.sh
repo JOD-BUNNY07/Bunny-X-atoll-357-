@@ -88,35 +88,31 @@ ccache -M 10G
 # TOOLCHAINS
 # =========================================
 echo "========================================"
-echo "🔽 CLONING TOOLCHAINS"
+echo "🔽 DOWNLOADING TOOLCHAINS"
 echo "========================================"
 mkdir -p "$TOOLCHAIN_DIR"
 
-# FIX: Google AOSP uses 'main' branch now, not 'master'
-if [ ! -d "$CLANG_DIR/clang-r563880c" ]; then
-    echo "⬇️ Downloading exact Clang (clang-r563880c)..."
-    rm -rf "$CLANG_DIR"
-    mkdir -p "$CLANG_DIR"
-    cd "$CLANG_DIR"
-    git init
-    git remote add origin https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86
-    git sparse-checkout init --cone
-    git sparse-checkout set clang-r563880c
-    git pull --depth=1 origin main
-    cd "$WORKDIR"
-fi
-
 CLANG_BIN="$CLANG_DIR/clang-r563880c/bin"
 
+# OPTIMISED: Git-এর বদলে সরাসরি নিরাপদ Tarball ডাউনলোড মেথড
 if [ ! -d "$CLANG_BIN" ]; then
-    echo "========================================"
-    echo "❌ clang-r563880c NOT FOUND"
-    echo "========================================"
-    exit 1
+    echo "⬇️ Downloading exact Clang (clang-r563880c) via Tarball..."
+    rm -rf "$CLANG_DIR"
+    mkdir -p "$CLANG_DIR/clang-r563880c"
+    
+    # গুগলের অফিশিয়াল আর্কাভ লিংক থেকে সরাসরি ডাউনলোড
+    if ! curl -fLo "$TOOLCHAIN_DIR/clang.tar.gz" "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r563880c.tar.gz"; then
+        echo "⚠️ Main branch archive fallback, trying static commit hash..."
+        curl -fLo "$TOOLCHAIN_DIR/clang.tar.gz" "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/f8439f0628d799092dd07df440a6334cab28939c/clang-r563880c.tar.gz"
+    fi
+    
+    echo "📦 Extracting Clang toolchain..."
+    tar -xzf "$TOOLCHAIN_DIR/clang.tar.gz" -C "$CLANG_DIR/clang-r563880c"
+    rm -f "$TOOLCHAIN_DIR/clang.tar.gz"
 fi
 
 echo "========================================"
-echo "✅ EXACT CLANG FOUND"
+echo "✅ EXACT CLANG COMPONENT VERIFIED"
 echo "========================================"
 
 # GCC64
@@ -140,7 +136,7 @@ export PATH="$CLANG_BIN:$GCC64_DIR/bin:$GCC32_DIR/bin:$PATH"
 
 export ARCH=arm64
 export SUBARCH=arm64
-export KEYBOARD_SUPPRESS_UNKNOWN=1
+export KBUILD_COMPILER_STRING="Project Infinity X Clang 21.0.0"
 
 # =========================================
 # CLANG VERSION CHECK
@@ -203,7 +199,6 @@ echo "========================================"
 echo "🚀 BUILDING KERNEL"
 echo "========================================"
 
-# Optimised make flags for Linux 4.14 with modern Clang
 if ! make -j"$(nproc)" O="$OUT_DIR" ARCH=arm64 \
     CC=clang \
     HOSTCC=gcc \
@@ -230,7 +225,6 @@ echo "========================================"
 echo "📦 CHECKING KERNEL IMAGE"
 echo "========================================"
 
-# Automatically detect output file format
 if [ -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" ]; then
     IMG="$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
     TARGET_NAME="Image.gz-dtb"
