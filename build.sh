@@ -85,35 +85,33 @@ export CCACHE_DIR="$WORKDIR/.ccache"
 ccache -M 10G
 
 # =========================================
-# TOOLCHAINS
+# TOOLCHAINS (DOWNLOAD SOLUTION)
 # =========================================
 echo "========================================"
 echo "🔽 DOWNLOADING TOOLCHAINS"
 echo "========================================"
 mkdir -p "$TOOLCHAIN_DIR"
 
-CLANG_BIN="$CLANG_DIR/clang-r563880c/bin"
-
-# OPTIMISED: Git-এর বদলে সরাসরি নিরাপদ Tarball ডাউনলোড মেথড
-if [ ! -d "$CLANG_BIN" ]; then
-    echo "⬇️ Downloading exact Clang (clang-r563880c) via Tarball..."
+if [ ! -d "$CLANG_DIR/clang-r563880c" ]; then
+    echo "⬇️ Cloning exact Clang toolchain (clang-r563880c)..."
     rm -rf "$CLANG_DIR"
-    mkdir -p "$CLANG_DIR/clang-r563880c"
-    
-    # গুগলের অফিশিয়াল আর্কাভ লিংক থেকে সরাসরি ডাউনলোড
-    if ! curl -fLo "$TOOLCHAIN_DIR/clang.tar.gz" "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r563880c.tar.gz"; then
-        echo "⚠️ Main branch archive fallback, trying static commit hash..."
-        curl -fLo "$TOOLCHAIN_DIR/clang.tar.gz" "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/f8439f0628d799092dd07df440a6334cab28939c/clang-r563880c.tar.gz"
-    fi
-    
-    echo "📦 Extracting Clang toolchain..."
-    tar -xzf "$TOOLCHAIN_DIR/clang.tar.gz" -C "$CLANG_DIR/clang-r563880c"
-    rm -f "$TOOLCHAIN_DIR/clang.tar.gz"
+    git clone --depth=1 --sparse https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b main "$CLANG_DIR"
+    cd "$CLANG_DIR"
+    git sparse-checkout set clang-r563880c
+    cd "$WORKDIR"
 fi
 
-echo "========================================"
-echo "✅ EXACT CLANG COMPONENT VERIFIED"
-echo "========================================"
+# Set Exact Binary Path
+CLANG_BIN="$CLANG_DIR/clang-r563880c/bin"
+
+if [ ! -d "$CLANG_BIN" ]; then
+    echo "========================================"
+    echo "❌ ERROR: Clang Binary Folder Not Found!"
+    echo "========================================"
+    exit 1
+fi
+
+echo "✅ EXACT CLANG FOUND: $CLANG_BIN"
 
 # GCC64
 if [ ! -d "$GCC64_DIR" ]; then
@@ -136,7 +134,7 @@ export PATH="$CLANG_BIN:$GCC64_DIR/bin:$GCC32_DIR/bin:$PATH"
 
 export ARCH=arm64
 export SUBARCH=arm64
-export KBUILD_COMPILER_STRING="Project Infinity X Clang 21.0.0"
+export KEYBOARD_SUPPRESS_UNKNOWN=1
 
 # =========================================
 # CLANG VERSION CHECK
@@ -149,9 +147,6 @@ clang --version
 # =========================================
 # ANYKERNEL
 # =========================================
-echo "========================================"
-echo "📦 CLONING ANYKERNEL"
-echo "========================================"
 if [ ! -d "$ANYKERNEL_DIR" ]; then
     git clone --depth=1 \
         --branch master \
@@ -176,9 +171,6 @@ send_msg "
 # =========================================
 # CLEAN
 # =========================================
-echo "========================================"
-echo "🧹 CLEANING"
-echo "========================================"
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 rm -f "$ANYKERNEL_DIR/Image.gz-dtb" "$ANYKERNEL_DIR/Image.gz" "$ANYKERNEL_DIR/Image"
@@ -187,16 +179,13 @@ rm -f "$ANYKERNEL_DIR"/*.zip
 # =========================================
 # DEFCONFIG
 # =========================================
-echo "========================================"
-echo "⚙️ GENERATING DEFCONFIG"
-echo "========================================"
 make O="$OUT_DIR" ARCH=arm64 "$DEFCONFIG"
 
 # =========================================
-# BUILD
+# COMPILING KERNEL
 # =========================================
 echo "========================================"
-echo "🚀 BUILDING KERNEL"
+echo "🚀 COMPILING KERNEL WITH LLVM=1"
 echo "========================================"
 
 if ! make -j"$(nproc)" O="$OUT_DIR" ARCH=arm64 \
@@ -219,12 +208,8 @@ if ! make -j"$(nproc)" O="$OUT_DIR" ARCH=arm64 \
 fi
 
 # =========================================
-# IMAGE CHECK & PACKAGING
+# SMART IMAGE CHECK & PACKAGING
 # =========================================
-echo "========================================"
-echo "📦 CHECKING KERNEL IMAGE"
-echo "========================================"
-
 if [ -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb" ]; then
     IMG="$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
     TARGET_NAME="Image.gz-dtb"
@@ -235,48 +220,25 @@ elif [ -f "$OUT_DIR/arch/arm64/boot/Image" ]; then
     IMG="$OUT_DIR/arch/arm64/boot/Image"
     TARGET_NAME="Image"
 else
-    echo "========================================"
     echo "❌ KERNEL IMAGE NOT FOUND"
-    echo "========================================"
     send_msg "❌ <b>Kernel Image Missing</b>"
-    send_file "$OUT_DIR/build.log" "❌ Missing Kernel Image"
     exit 1
 fi
 
-echo "✅ Found Kernel Image: $TARGET_NAME"
 cp "$IMG" "$ANYKERNEL_DIR/$TARGET_NAME"
 
-# =========================================
-# PACKAGING ZIP
-# =========================================
-echo "========================================"
-echo "📦 PACKAGING ZIP"
-echo "========================================"
+# Packaging Zip
 cd "$ANYKERNEL_DIR"
 zip -r9 "$ZIPNAME" ./* -x ".git*" README.md "*.zip" > /dev/null
 
-# =========================================
-# FINISH
-# =========================================
 END=$(date +%s)
 DIFF=$((END - START))
 
 send_msg "
 ✅ <b>Build Success</b>
-
 📦 <code>$ZIPNAME</code>
 ⏱ <code>${DIFF}s</code>
-👤 <code>$KBUILD_BUILD_USER</code>
 "
 
-send_file "$ANYKERNEL_DIR/$ZIPNAME" "
-✅ <b>BunnyX Kernel Build Success</b>
-
-📦 <code>$ZIPNAME</code>
-⏱ <code>${DIFF}s</code>
-⚙️ <code>$COMPILER</code>
-"
-
-echo "========================================"
-echo "🎉 BUILD COMPLETED SUCCESSFULLY"
-echo "========================================"
+send_file "$ANYKERNEL_DIR/$ZIPNAME" "✅ <b>BunnyX Kernel Success!</b>"
+echo "🎉 COMPLETED SUCCESSFULLY"
