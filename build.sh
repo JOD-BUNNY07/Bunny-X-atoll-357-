@@ -4,7 +4,7 @@ set -e
 # =========================================
 # BUNNYX KERNEL BUILD SCRIPT
 # EXACT SAME CLANG AS PROJECT INFINITY X
-# clang-r563880 (Android 21.0.0)
+# clang-r563880c (Android 21.0.0)
 # =========================================
 
 WORKDIR=$(pwd)
@@ -109,7 +109,8 @@ echo "========================================"
 mkdir -p toolchains
 
 # =========================================
-# EXACT CLANG r563880
+# EXACT PROJECT INFINITY X CLANG
+# clang-r563880c
 # =========================================
 
 if [ ! -d "$CLANG_DIR" ]; then
@@ -118,17 +119,15 @@ if [ ! -d "$CLANG_DIR" ]; then
         "$CLANG_DIR"
 fi
 
-CLANG_BIN=$(find "$CLANG_DIR" \
-    -type d \
-    -path "*/clang-r563880*/bin" | head -n 1)
+CLANG_BIN="$CLANG_DIR/clang-r563880c/bin"
 
-if [ -z "$CLANG_BIN" ]; then
-    echo "❌ clang-r563880 NOT FOUND"
+if [ ! -d "$CLANG_BIN" ]; then
+    echo "❌ clang-r563880c NOT FOUND"
     exit 1
 fi
 
 echo "========================================"
-echo "✅ CLANG FOUND"
+echo "✅ EXACT CLANG FOUND"
 echo "========================================"
 
 echo "$CLANG_BIN"
