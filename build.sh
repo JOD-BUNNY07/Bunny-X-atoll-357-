@@ -11,8 +11,10 @@ WORKDIR=$(pwd)
 
 OUT_DIR="$WORKDIR/out"
 
-CLANG_DIR="$WORKDIR/toolchains/clang"
-GCC64_DIR="$WORKDIR/toolchains/gcc64"
+TOOLCHAIN_DIR="$WORKDIR/toolchains"
+
+CLANG_DIR="$TOOLCHAIN_DIR/clang"
+GCC64_DIR="$TOOLCHAIN_DIR/gcc64"
 
 ANYKERNEL_DIR="$WORKDIR/AnyKernel3"
 
@@ -106,37 +108,39 @@ echo "========================================"
 echo "🔽 CLONING TOOLCHAINS"
 echo "========================================"
 
-mkdir -p toolchains
+mkdir -p "$TOOLCHAIN_DIR"
 
 # =========================================
-# EXACT PROJECT INFINITY X CLANG
-# clang-r563880c
+# CLANG r563880c
 # =========================================
 
 rm -rf "$CLANG_DIR"
 
+cd "$TOOLCHAIN_DIR"
+
 git clone --depth=1 \
-    --filter=blob:none \
-    --sparse \
-    https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
-    "$CLANG_DIR"
+https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86
 
-cd "$CLANG_DIR"
-
-git sparse-checkout set clang-r563880c
+mv linux-x86 clang
 
 cd "$WORKDIR"
 
-CLANG_BIN="$CLANG_DIR/clang-r563880c/bin"
+CLANG_BIN=$(find "$CLANG_DIR" \
+-type d \
+-path "*/clang-r563880c/bin" | head -n 1)
 
-if [ ! -d "$CLANG_BIN" ]; then
+if [ -z "$CLANG_BIN" ]; then
 
     echo "========================================"
     echo "❌ clang-r563880c NOT FOUND"
     echo "========================================"
 
     echo "Available Clang Versions:"
-    ls "$CLANG_DIR"
+
+    find "$CLANG_DIR" \
+    -maxdepth 1 \
+    -type d \
+    -name "clang-*"
 
     exit 1
 fi
@@ -154,8 +158,8 @@ echo "$CLANG_BIN"
 rm -rf "$GCC64_DIR"
 
 git clone --depth=1 \
-    https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-gnu-9.3 \
-    "$GCC64_DIR"
+https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-gnu-9.3 \
+"$GCC64_DIR"
 
 # =========================================
 # EXPORTS
@@ -190,6 +194,7 @@ which clang
 which llvm-ar
 which llvm-nm
 which llvm-objdump
+which ld.lld
 
 echo "========================================"
 echo "⚙️ CLANG VERSION"
@@ -209,8 +214,8 @@ echo "========================================"
 
 if [ ! -d "$ANYKERNEL_DIR" ]; then
     git clone --depth=1 \
-        https://github.com/JOD-BUNNY07/AnyKernel3.git \
-        "$ANYKERNEL_DIR"
+    https://github.com/JOD-BUNNY07/AnyKernel3.git \
+    "$ANYKERNEL_DIR"
 fi
 
 # =========================================
@@ -287,7 +292,7 @@ if ! make -j"$(nproc)" \
 "
 
     send_file "$OUT_DIR/build.log" \
-        "❌ Build Error Log"
+    "❌ Build Error Log"
 
     exit 1
 fi
@@ -297,7 +302,7 @@ fi
 # =========================================
 
 IMG=$(find "$OUT_DIR/arch/arm64/boot" \
-    -name "Image*" | head -n 1)
+-name "Image*" | head -n 1)
 
 if [ ! -f "$IMG" ]; then
 
@@ -310,7 +315,7 @@ if [ ! -f "$IMG" ]; then
 "
 
     send_file "$OUT_DIR/build.log" \
-        "❌ Missing Kernel Image"
+    "❌ Missing Kernel Image"
 
     exit 1
 fi
@@ -332,7 +337,7 @@ cp "$IMG" "$ANYKERNEL_DIR/Image.gz-dtb"
 cd "$ANYKERNEL_DIR"
 
 zip -r9 "$ZIPNAME" ./* \
-    -x ".git*" README.md "*.zip" > /dev/null
+-x ".git*" README.md "*.zip" > /dev/null
 
 # =========================================
 # FINISH
