@@ -30,7 +30,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .ccache
-          key: ${{ runner.os }}-ccache-${{ github.sha }}
+          key: ${{ runner.os }}-kernel-v22-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-ccache-
 
