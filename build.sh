@@ -3,6 +3,8 @@ set -e
 
 # =========================================
 # BUNNYX KERNEL BUILD SCRIPT
+# EXACT SAME CLANG AS PROJECT INFINITY X
+# clang-r563880 (Android 21.0.0)
 # =========================================
 
 WORKDIR=$(pwd)
@@ -85,7 +87,7 @@ sudo apt update
 sudo apt install -y \
     bc bison build-essential curl flex git \
     libssl-dev lzop python3 zip unzip \
-    gcc g++ clang lld ccache
+    gcc g++ ccache
 
 # =========================================
 # CCACHE
@@ -107,7 +109,7 @@ echo "========================================"
 mkdir -p toolchains
 
 # =========================================
-# CLANG
+# EXACT CLANG r563880
 # =========================================
 
 if [ ! -d "$CLANG_DIR" ]; then
@@ -116,7 +118,20 @@ if [ ! -d "$CLANG_DIR" ]; then
         "$CLANG_DIR"
 fi
 
-CLANG_BIN=$(find "$CLANG_DIR" -type d -path "*/bin" | head -n 1)
+CLANG_BIN=$(find "$CLANG_DIR" \
+    -type d \
+    -path "*/clang-r563880*/bin" | head -n 1)
+
+if [ -z "$CLANG_BIN" ]; then
+    echo "❌ clang-r563880 NOT FOUND"
+    exit 1
+fi
+
+echo "========================================"
+echo "✅ CLANG FOUND"
+echo "========================================"
+
+echo "$CLANG_BIN"
 
 # =========================================
 # GCC64
@@ -139,6 +154,28 @@ export SUBARCH=arm64
 
 export CC=clang
 export LD=ld.lld
+
+export LLVM=1
+export LLVM_IAS=1
+
+export AR=llvm-ar
+export NM=llvm-nm
+export OBJCOPY=llvm-objcopy
+export OBJDUMP=llvm-objdump
+export STRIP=llvm-strip
+
+# =========================================
+# VERIFY LLVM TOOLS
+# =========================================
+
+echo "========================================"
+echo "⚙️ VERIFY LLVM TOOLS"
+echo "========================================"
+
+which clang
+which llvm-ar
+which llvm-nm
+which llvm-objdump
 
 # =========================================
 # ANYKERNEL
@@ -165,7 +202,7 @@ echo "========================================"
 echo "⚙️ COMPILER"
 echo "========================================"
 
-echo "$COMPILER"
+clang --version
 
 # =========================================
 # BUILD START
@@ -225,6 +262,11 @@ if ! make -j"$(nproc)" \
     LLVM_IAS=1 \
     CLANG_TRIPLE=aarch64-linux-gnu- \
     CROSS_COMPILE=aarch64-linux-gnu- \
+    AR=llvm-ar \
+    NM=llvm-nm \
+    OBJCOPY=llvm-objcopy \
+    OBJDUMP=llvm-objdump \
+    STRIP=llvm-strip \
     2>&1 | tee "$OUT_DIR/build.log"; then
 
     echo "========================================"
