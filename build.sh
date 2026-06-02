@@ -119,10 +119,18 @@ if [ ! -d "$CLANG_DIR" ]; then
         "$CLANG_DIR"
 fi
 
-CLANG_BIN="$CLANG_DIR/clang-r563880c/bin"
+CLANG_BIN=$(find "$CLANG_DIR" \
+    -type d \
+    -name "bin" | grep "clang-r563880c" | head -n 1)
 
-if [ ! -d "$CLANG_BIN" ]; then
+if [ -z "$CLANG_BIN" ]; then
+    echo "========================================"
     echo "❌ clang-r563880c NOT FOUND"
+    echo "========================================"
+
+    echo "Available Clang Versions:"
+    find "$CLANG_DIR" -maxdepth 1 -type d -name "clang-*"
+
     exit 1
 fi
 
