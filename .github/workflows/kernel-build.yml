@@ -3,7 +3,7 @@ name: BunnyX Kernel Build
 on:
   push:
     branches:
-      - mcqueen-ksu
+      - mcqueen
 
   workflow_dispatch:
 
@@ -22,7 +22,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          ref: mcqueen-ksu
+          ref: mcqueen
           fetch-depth: 0
           token: ${{ secrets.PAT_TOKEN }}
 
