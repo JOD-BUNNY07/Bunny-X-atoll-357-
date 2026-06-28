@@ -31,6 +31,11 @@
 DEFINE_TRACE(syscall_sync_timeout);
 #endif /*OPLUS_FEATURE_IOMONITOR*/
 
+#ifdef CONFIG_DYNAMIC_FSYNC
+#include <linux/dyn_sync_cntrl.h>
+#endif
+
+
 #define VALID_FLAGS (SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE| \
 			SYNC_FILE_RANGE_WAIT_AFTER)
 
@@ -108,6 +113,18 @@ static void fdatawait_one_bdev(struct block_device *bdev, void *arg)
 	filemap_fdatawait_keep_errors(bdev->bd_inode->i_mapping);
 }
 
+#ifdef CONFIG_DYNAMIC_FSYNC
+void sync_filesystems(int wait)
+{
+	iterate_supers(sync_inodes_one_sb, NULL);
+	iterate_supers(sync_fs_one_sb, &wait);
+	iterate_supers(sync_fs_one_sb, &wait);
+	iterate_bdevs(fdatawrite_one_bdev, NULL);
+	iterate_bdevs(fdatawait_one_bdev, NULL);
+}
+#endif
+
+
 /*
  * Sync everything. We start by waking flusher threads so that most of
  * writeback runs on all devices in parallel. Then we sync all inodes reliably
@@ -118,16 +135,21 @@ static void fdatawait_one_bdev(struct block_device *bdev, void *arg)
  * just write metadata (such as inodes or bitmaps) to block device page cache
  * and do not sync it on their own in ->sync_fs().
  */
+
 SYSCALL_DEFINE0(sync)
 {
 	int nowait = 0, wait = 1;
 
 	wakeup_flusher_threads(0, WB_REASON_SYNC);
+#ifdef CONFIG_DYNAMIC_FSYNC
+	sync_filesystems(wait);
+#else
 	iterate_supers(sync_inodes_one_sb, NULL);
 	iterate_supers(sync_fs_one_sb, &nowait);
 	iterate_supers(sync_fs_one_sb, &wait);
 	iterate_bdevs(fdatawrite_one_bdev, NULL);
 	iterate_bdevs(fdatawait_one_bdev, NULL);
+#endif
 	if (unlikely(laptop_mode))
 		laptop_sync_completion();
 	return 0;
