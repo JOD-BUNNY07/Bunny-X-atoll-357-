@@ -1,10 +1,7 @@
 #!/bin/bash
 set -e
 
-# ===================== BASIC =====================
-
 WORKDIR=$(pwd)
-
 OUT_DIR="$WORKDIR/out"
 CLANG_DIR="$WORKDIR/toolchains/clang"
 GCC_DIR="$WORKDIR/toolchains/gcc"
@@ -12,14 +9,21 @@ ANYKERNEL_DIR="$WORKDIR/AnyKernel3"
 
 DEVICE="RMX2061"
 DEFCONFIG="atoll_defconfig"
-
-KERNEL_NAME="BunnyX-atoll"
-VERSION="v1.0.0"
+KERNEL_NAME="BunnyX-Perf-atoll"
+VARIENT="KSUN"
+BUILD_TYPE="Stable"
+VERSION="v1.0.3"
 
 DATE=$(date +%Y%m%d)
 TIME=$(date +%H%M)
-
 ZIPNAME="${KERNEL_NAME}-${DEVICE}-${TIME}-${DATE}-${VERSION}.zip"
+
+# ===================== CCACHE =====================
+
+export USE_CCACHE=1
+export CCACHE_DIR="$WORKDIR/.ccache"
+mkdir -p "$CCACHE_DIR"
+ccache -M 15G >/dev/null 2>&1 || true
 
 # ===================== TELEGRAM =====================
 
@@ -47,110 +51,100 @@ send_file() {
     fi
 }
 
-# ===================== INFO =====================
-
-echo "========================================"
-echo "💾 STORAGE INFO"
-echo "========================================"
-
-df -h
-
-echo "========================================"
-echo "🧠 CPU INFO"
-echo "========================================"
-
-nproc
-
 # ===================== TOOLCHAIN =====================
 
 echo "========================================"
-echo "🔧 SETTING UP TOOLCHAINS"
+echo "🔧 TOOLCHAIN SETUP"
 echo "========================================"
 
-mkdir -p toolchains
+mkdir -p "$WORKDIR/toolchains"
 
-rm -rf "$CLANG_DIR"
-rm -rf "$GCC_DIR"
+# ===== CLANG =====
+if [ ! -d "$CLANG_DIR" ]; then
+    echo "⬇️ Downloading Clang..."
+    git clone --depth=1 \
+    https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
+    "$CLANG_DIR"
+fi
 
-git clone --depth=1 \
-https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
-"$CLANG_DIR"
+# Auto-detect latest clang
+CLANG_BIN=$(find "$CLANG_DIR" -maxdepth 1 -type d -name "clang-r*" | sort -V | tail -1)
 
-CLANG_BIN=$(find "$CLANG_DIR" -type d -name "clang-*" | head -n 1)
+if [ -z "$CLANG_BIN" ]; then
+    echo "❌ No clang found"
+    ls -1 "$CLANG_DIR" | head -5
+    exit 1
+fi
 
-git clone --depth=1 \
-https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-gnu-9.3 \
-"$GCC_DIR"
+echo "✅ Clang: $(basename $CLANG_BIN)"
 
-export PATH="$CLANG_BIN/bin:$GCC_DIR/bin:$PATH"
+# ===== LLVM BINUTILS =====
+BINUTILS_DIR="$CLANG_DIR/llvm-binutils-stable"
 
+if [ ! -d "$BINUTILS_DIR" ]; then
+    echo "⬇️ Downloading llvm-binutils-stable..."
+    git clone --depth=1 \
+    https://android.googlesource.com/toolchain/llvm-binutils-stable \
+    "$BINUTILS_DIR" 2>&1 | tail -1
+else
+    echo "✅ Using cached binutils"
+fi
+
+# ===== GCC =====
+if [ ! -d "$GCC_DIR" ]; then
+    echo "⬇️ Downloading GCC..."
+    git clone --depth=1 \
+    https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-gnu-9.3 \
+    "$GCC_DIR"
+fi
+
+# ===== PATH SETUP =====
+export PATH="$CLANG_BIN/bin:$BINUTILS_DIR/bin:$GCC_DIR/bin:$PATH"
 export ARCH=arm64
 export SUBARCH=arm64
 
 export CC=clang
 export LD=ld.lld
+export AR=llvm-ar
+export NM=llvm-nm
+export STRIP=llvm-strip
+export OBJCOPY=llvm-objcopy
+export OBJDUMP=llvm-objdump
 
-# ===================== VERIFY =====================
-
-echo "========================================"
-echo "⚙️ CLANG VERSION"
-echo "========================================"
-
-clang --version
+echo "✅ Compiler ready"
 
 # ===================== ANYKERNEL =====================
 
-echo "========================================"
-echo "📦 ANYKERNEL"
-echo "========================================"
-
 if [ ! -d "$ANYKERNEL_DIR" ]; then
-    git clone --depth=1 \
-    --branch master \
+    echo "⬇️ Cloning AnyKernel3..."
+    git clone --depth=1 --branch master \
     https://github.com/JOD-BUNNY07/AnyKernel3.git \
     "$ANYKERNEL_DIR"
 fi
 
-# ===================== START =====================
+# ===================== BUILD START =====================
 
 START=$(date +%s)
 
-send_msg "
-🚀 <b>Kernel Build Started</b>
-
-📱 <code>$DEVICE</code>
-⚙️ <code>Clang 22.0.2 + GCC</code>
-🧠 <code>$KERNEL_NAME</code>
-"
-
-# ===================== CLEAN =====================
+send_msg "🚀 <b>Build Started</b>
+📱 $DEVICE | 🧠 $(nproc) cores | ⏱️ ~10min"
 
 echo "========================================"
-echo "🧹 CLEANING"
+echo "🚀 BUILDING"
 echo "========================================"
 
-rm -rf "$OUT_DIR"
+# Minimal cleanup
+rm -f "$ANYKERNEL_DIR/zImage" "$ANYKERNEL_DIR"/*.zip
 
+# Update config
 mkdir -p "$OUT_DIR"
+make O="$OUT_DIR" ARCH=arm64 "$DEFCONFIG" > /dev/null 2>&1
+make O="$OUT_DIR" ARCH=arm64 olddefconfig > /dev/null 2>&1
 
-rm -f "$ANYKERNEL_DIR/zImage"
-rm -f "$ANYKERNEL_DIR"/*.zip
+# Build with max parallelization
+JOBS=$(($(nproc) * 2))
 
-# ===================== DEFCONFIG =====================
-
-echo "========================================"
-echo "⚙️ GENERATING DEFCONFIG"
-echo "========================================"
-
-make O="$OUT_DIR" ARCH=arm64 "$DEFCONFIG"
-
-# ===================== BUILD =====================
-
-echo "========================================"
-echo "🚀 BUILDING KERNEL"
-echo "========================================"
-
-if ! make -j$(nproc) \
+if ! make -j$JOBS \
 O="$OUT_DIR" \
 ARCH=arm64 \
 CC=clang \
@@ -163,17 +157,9 @@ CLANG_TRIPLE=aarch64-linux-gnu- \
 CROSS_COMPILE=aarch64-linux-gnu- \
 2>&1 | tee "$OUT_DIR/build.log"; then
 
-    echo "========================================"
     echo "❌ BUILD FAILED"
-    echo "========================================"
-
-    send_msg "
-❌ <b>Build Failed</b>
-"
-
-    send_file "$OUT_DIR/build.log" \
-    "❌ Build Error Log"
-
+    send_msg "❌ <b>Build Failed</b>"
+    send_file "$OUT_DIR/build.log" "Error Log"
     exit 1
 fi
 
@@ -182,24 +168,12 @@ fi
 IMG="$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
 
 if [ ! -f "$IMG" ]; then
-
-    echo "========================================"
-    echo "❌ IMAGE NOT FOUND"
-    echo "========================================"
-
-    send_msg "
-❌ <b>Kernel Image Missing</b>
-"
-
-    send_file "$OUT_DIR/build.log" \
-    "❌ Missing Image Log"
-
+    echo "❌ Image not found"
+    send_msg "❌ <b>Image Missing</b>"
     exit 1
 fi
 
-echo "========================================"
-echo "✅ BUILD SUCCESS"
-echo "========================================"
+echo "✅ Image: $(du -h "$IMG" | cut -f1)"
 
 # ===================== PACKAGING =====================
 
@@ -210,23 +184,26 @@ echo "========================================"
 cp "$IMG" "$ANYKERNEL_DIR/zImage"
 
 cd "$ANYKERNEL_DIR"
+zip -r9q "$ZIPNAME" * -x ".git*" README.md "*.zip"
 
-zip -r9 "$ZIPNAME" * \
--x ".git*" README.md "*.zip" > /dev/null
+ZIP_SIZE=$(du -h "$ZIPNAME" | cut -f1)
+echo "✅ ZIP: $ZIP_SIZE"
 
 # ===================== FINISH =====================
 
 END=$(date +%s)
 DIFF=$((END - START))
+MINS=$((DIFF / 60))
+SECS=$((DIFF % 60))
+
+echo "========================================"
+echo "✅ BUILD COMPLETE!"
+echo "⏱️ Time: ${MINS}m ${SECS}s"
+echo "========================================"
 
 send_file "$ANYKERNEL_DIR/$ZIPNAME" \
-"
-✅ <b>Build Success</b>
+"✅ <b>Build Success</b>
 
-📦 <code>$ZIPNAME</code>
-⏱ <code>${DIFF}s</code>
-"
-
-echo "========================================"
-echo "🎉 DONE!"
-echo "========================================"
+📦 $ZIPNAME
+📊 Size: $ZIP_SIZE
+⏱️ Time: ${MINS}m ${SECS}s"
