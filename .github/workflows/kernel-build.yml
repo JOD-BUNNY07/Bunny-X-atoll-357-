@@ -8,7 +8,7 @@ on:
       branch:
         description: 'Branch to build'
         required: true
-        default: 'mcqueen-ksu'
+        default: 'Test-2'
         type: choice
         options:
           - Test
@@ -22,8 +22,8 @@ on:
         default: 'atoll_defconfig'
         type: choice
         options:
-          - atoll-perf_defconfig
           - atoll_defconfig
+          - atoll-perf_defconfig
 
 permissions:
   contents: write
@@ -37,7 +37,7 @@ jobs:
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       BRANCH: ${{ github.event.inputs.branch || github.ref_name }}
-      DEFCONFIG: ${{ github.event.inputs.defconfig || 'atoll-perf_defconfig' }}
+      DEFCONFIG: ${{ github.event.inputs.defconfig || 'atoll_defconfig' }}
 
     steps:
       - name: Checkout
@@ -45,8 +45,9 @@ jobs:
         with:
           ref: ${{ env.BRANCH }}
           fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN }}
 
-      - name: Setup Environment
+      - name: Setup build environment
         run: |
           sudo swapoff -a 2>/dev/null || true
           sudo fallocate -l 8G /swapfile
@@ -57,12 +58,12 @@ jobs:
           
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends \
-            bc bison flex curl git zip unzip zstd \
+            bc bison flex curl git zip unzip \
             libssl-dev python3 ccache \
-            clang lld llvm gcc g++ \
+            clang lld gcc g++ \
             libncurses5-dev lib32z1-dev
           
-          ccache --max-size=10G
+          ccache --max-size=5G
           ccache --zero-stats
 
       - name: Cache Toolchains
@@ -90,27 +91,18 @@ jobs:
         run: |
           chmod +x build.sh
           
-          echo ""
-          echo "Build Parameters:"
-          echo "  Branch:    ${{ env.BRANCH }}"
-          echo "  Defconfig: ${{ env.DEFCONFIG }}"
-          echo ""
-          
-          export USE_CCACHE=1
-          export CCACHE_DIR=${{ github.workspace }}/.ccache
-          export DEFCONFIG="${{ env.DEFCONFIG }}"
-          
+          USE_CCACHE=1 \
+          CCACHE_DIR=${{ github.workspace }}/.ccache \
           ./build.sh 2>&1 | tee build_full.log
           
           BUILD_EXIT=${PIPESTATUS[0]}
           echo "BUILD_EXIT=$BUILD_EXIT" >> $GITHUB_ENV
           echo "build_status=$BUILD_EXIT" >> $GITHUB_OUTPUT
           
-          if [ -f out/.kernel_name ]; then
-            echo "KERNEL_FULL_NAME=$(cat out/.kernel_name)" >> $GITHUB_ENV
-          fi
-          
           exit $BUILD_EXIT
+        env:
+          USE_CCACHE: 1
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
 
       - name: Save Build Log
         if: always()
@@ -121,39 +113,91 @@ jobs:
             build_full.log
             out/build.log
             out/.config
+            out/.config.old
           retention-days: 7
           if-no-files-found: ignore
 
-      - name: Upload Kernel Artifact
+      - name: Prepare Error Log
+        if: always() && (env.BUILD_EXIT != '0' || steps.kernel_build.outcome == 'failure')
+        run: |
+          mkdir -p error_report
+          
+          {
+            echo "BUILD FAILED"
+            echo "Branch: ${{ env.BRANCH }}"
+            echo "Commit: ${{ github.sha }}"
+            echo "Actor: ${{ github.actor }}"
+            echo ""
+            echo "LAST 80 LINES:"
+            echo "=================="
+          } > error_report/summary.txt
+          
+          if [ -f build_full.log ]; then
+            tail -n 80 build_full.log >> error_report/summary.txt
+            
+            echo "" >> error_report/summary.txt
+            echo "ALL ERRORS:"
+            echo "=================="
+            grep -n -E "(error:|ERROR:|Error [0-9]+|make\[[0-9]+\].*Error)" build_full.log | tail -n 20 >> error_report/summary.txt
+            
+            cp build_full.log error_report/
+          fi
+          
+          if [ -f out/build.log ]; then
+            echo "" >> error_report/summary.txt
+            echo "OUT/BUILD.LOG LAST 50:"
+            echo "=================="
+            tail -n 50 out/build.log >> error_report/summary.txt
+          fi
+          
+          head -c 3500 error_report/summary.txt > error_report/telegram_msg.txt
+
+      - name: Telegram Notify - Failure
+        if: always() && (env.BUILD_EXIT != '0' || steps.kernel_build.outcome == 'failure') && env.TELEGRAM_TOKEN != ''
+        run: |
+          MSG=$(cat error_report/telegram_msg.txt)
+          
+          curl -s -X POST \
+            https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
+            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+            -d parse_mode="HTML" \
+            -d text="<b>BunnyX Kernel Build Failed!</b>%0A%0A<b>Branch:</b> ${{ env.BRANCH }}%0A<b>Run:</b> #${{ github.run_number }}%0A<b>Actor:</b> ${{ github.actor }}%0A<b>Commit:</b> <code>${{ github.sha }}</code>%0A%0A<a href='${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'>View Run</a>%0A%0A<pre>$(echo "$MSG" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')</pre>"
+          
+          if [ -f error_report/summary.txt ]; then
+            curl -s -X POST \
+              https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendDocument \
+              -F chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+              -F document=@error_report/summary.txt \
+              -F caption="Full error log - ${{ env.BRANCH }} #${{ github.run_number }}"
+          fi
+
+      - name: Telegram Notify - Success
+        if: success() && env.BUILD_EXIT == '0' && env.TELEGRAM_TOKEN != ''
+        run: |
+          curl -s -X POST \
+            https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
+            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+            -d parse_mode="HTML" \
+            -d text="<b>BunnyX Kernel Build Complete!</b>%0A%0A<b>Branch:</b> ${{ env.BRANCH }}%0A<b>Run:</b> #${{ github.run_number }}%0A<b>Actor:</b> ${{ github.actor }}%0A%0A<a href='${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'>View Run</a>"
+
+      - name: Upload Artifact
         if: success() && env.BUILD_EXIT == '0'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.KERNEL_FULL_NAME }}
           path: out/*.zip
-          retention-days: 14
-          if-no-files-found: error
+          retention-days: 7
 
-      - name: Telegram Success
-        if: success() && env.BUILD_EXIT == '0' && env.TELEGRAM_TOKEN != ''
-        run: |
-          KERNEL_NAME="${{ env.KERNEL_FULL_NAME }}"
-          curl -s -X POST \
-            https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
-            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
-            -d parse_mode="HTML" \
-            -d text="<b>Build Complete!</b>%0A%0ABranch: <code>${{ env.BRANCH }}</code>%0ARun: #${{ github.run_number }}%0AArtifact: <code>${KERNEL_NAME}</code>%0A%0A<a href='${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'>View Run</a>"
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/') && env.BUILD_EXIT == '0'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: out/*.zip
+          name: "BunnyX Kernel ${{ github.ref_name }}"
 
-      - name: Telegram Failure
-        if: failure() && env.TELEGRAM_TOKEN != ''
-        run: |
-          curl -s -X POST \
-            https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
-            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
-            -d parse_mode="HTML" \
-            -d text="<b>Build Failed!</b>%0A%0ABranch: <code>${{ env.BRANCH }}</code>%0ARun: #${{ github.run_number }}%0A%0A<a href='${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'>View Run</a>"
-
-      - name: Final Check
+      - name: Check Build Status
         if: env.BUILD_EXIT != '0'
         run: |
-          echo "Build failed: ${{ env.BUILD_EXIT }}"
+          echo "Build failed with exit code ${{ env.BUILD_EXIT }}"
           exit 1
+
