@@ -2280,18 +2280,20 @@ static int link_path_walk(const char *name, struct nameidata *nd)
 	for(;;) {
 		u64 hash_len;
 		int type;
-
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
-		struct dentry *dentry = nd->path.dentry;
-		if (dentry->d_inode && susfs_is_inode_sus_path(dentry->d_inode)) {
-			// return -ENOENT here since it is walking the sub path of sus path
-			return -ENOENT;
-		}
+		struct dentry *dentry;
 #endif
 
 		err = may_lookup(nd);
 		if (err)
 			return err;
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+		dentry = nd->path.dentry;
+		if (dentry->d_inode && susfs_is_inode_sus_path(dentry->d_inode)) {
+			// return -ENOENT here since it is walking the sub path of sus path
+			return -ENOENT;
+		}
+#endif
 
 		hash_len = hash_name(nd->path.dentry, name);
 
@@ -3149,6 +3151,27 @@ int vfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 	return vfs_create2(NULL, dir, dentry, mode, want_excl);
 }
 EXPORT_SYMBOL(vfs_create);
+
+int vfs_mkobj(struct dentry *dentry, umode_t mode,
+		int (*f)(struct dentry *, umode_t, void *),
+		void *arg)
+{
+	struct inode *dir = dentry->d_parent->d_inode;
+	int error = may_create(NULL, dir, dentry);
+
+	if (error)
+		return error;
+	mode &= S_IALLUGO;
+	mode |= S_IFREG;
+	error = security_inode_create(dir, dentry, mode);
+	if (error)
+		return error;
+	error = f(dentry, mode, arg);
+	if (!error)
+		fsnotify_create(dir, dentry);
+	return error;
+}
+EXPORT_SYMBOL(vfs_mkobj);
 
 bool may_open_dev(const struct path *path)
 {
