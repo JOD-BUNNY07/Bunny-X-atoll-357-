@@ -9,10 +9,10 @@ ANYKERNEL_DIR="$WORKDIR/AnyKernel3"
 
 DEVICE="RMX2061"
 DEFCONFIG="atoll_defconfig"
-KERNEL_NAME="BunnyX-Perf-atoll"
-VARIENT="KSUN"
-BUILD_TYPE="Stable"
-VERSION="v1.0.3"
+KERNEL_NAME="BunnyBladeX"
+VARIENT="ResukiSU"
+BUILD_TYPE="Test"
+VERSION="v1.0.0"
 
 DATE=$(date +%Y%m%d)
 TIME=$(date +%H%M)
@@ -23,6 +23,17 @@ KERNEL_FULL_NAME="${KERNEL_NAME}-${DEVICE}-${TIME}-${DATE}-${VERSION}"
 if [ -n "$GITHUB_ENV" ]; then
     echo "KERNEL_FULL_NAME=${KERNEL_FULL_NAME}" >> "$GITHUB_ENV"
 fi
+# ===================================================
+
+# ===================== COLOURS =====================
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+WHITE='\033[1;37m'
+NC='\033[0m' # No Colour
 # ===================================================
 
 # ===================== CCACHE =====================
@@ -58,15 +69,16 @@ send_file() {
 
 # ===================== TOOLCHAIN =====================
 
-echo "========================================"
-echo "    BUNNYX KERNEL BUILD SYSTEM"
-echo "========================================"
+echo ""
+echo -e "${CYAN}========================================${NC}"
+echo -e "${CYAN}    BUNNYX KERNEL BUILD SYSTEM${NC}"
+echo -e "${CYAN}========================================${NC}"
 
 mkdir -p "$WORKDIR/toolchains"
 
 # ===== CLANG (ORIGINAL - DO NOT CHANGE) =====
 if [ ! -d "$CLANG_DIR" ]; then
-    echo "Downloading Clang..."
+    echo -e "${YELLOW}Downloading Clang...${NC}"
     git clone --depth=1 \
     https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
     "$CLANG_DIR"
@@ -76,28 +88,28 @@ fi
 CLANG_BIN=$(find "$CLANG_DIR" -maxdepth 1 -type d -name "clang-r*" | sort -V | tail -1)
 
 if [ -z "$CLANG_BIN" ]; then
-    echo "No clang found"
+    echo -e "${RED}No clang found${NC}"
     ls -1 "$CLANG_DIR" | head -5
     exit 1
 fi
 
-echo "Clang: $(basename $CLANG_BIN)"
+echo -e "${GREEN}Clang: $(basename $CLANG_BIN)${NC}"
 
 # ===== LLVM BINUTILS (ORIGINAL) =====
 BINUTILS_DIR="$CLANG_DIR/llvm-binutils-stable"
 
 if [ ! -d "$BINUTILS_DIR" ]; then
-    echo "Downloading llvm-binutils-stable..."
+    echo -e "${YELLOW}Downloading llvm-binutils-stable...${NC}"
     git clone --depth=1 \
     https://android.googlesource.com/toolchain/llvm-binutils-stable \
     "$BINUTILS_DIR" 2>&1 | tail -1
 else
-    echo "Using cached binutils"
+    echo -e "${GREEN}Using cached binutils${NC}"
 fi
 
 # ===== GCC (ORIGINAL) =====
 if [ ! -d "$GCC_DIR" ]; then
-    echo "Downloading GCC..."
+    echo -e "${YELLOW}Downloading GCC...${NC}"
     git clone --depth=1 \
     https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-gnu-9.3 \
     "$GCC_DIR"
@@ -116,41 +128,41 @@ export STRIP=llvm-strip
 export OBJCOPY=llvm-objcopy
 export OBJDUMP=llvm-objdump
 
-echo "Compiler ready"
+echo -e "${GREEN}Compiler ready${NC}"
 
 # ===================== BUILD INFO BOX (NEW) =====================
 echo ""
-echo "========================================"
-echo "    COMPILER INFORMATION"
-echo "========================================"
+echo -e "${CYAN}========================================${NC}"
+echo -e "${CYAN}    COMPILER INFORMATION${NC}"
+echo -e "${CYAN}========================================${NC}"
 
 CLANG_VER=$(clang --version | head -n1)
-echo "Clang: ${CLANG_VER}"
+echo -e "${GREEN}Clang: ${CLANG_VER}${NC}"
 
 GCC_VER=$(aarch64-linux-gnu-gcc --version | head -n1)
-echo "GCC:   ${GCC_VER}"
+echo -e "${GREEN}GCC:   ${GCC_VER}${NC}"
 
 LD_VER=$(ld.lld --version | head -n1)
-echo "LD:    ${LD_VER}"
+echo -e "${GREEN}LD:    ${LD_VER}${NC}"
 
 echo ""
-echo "========================================"
-echo "    BUILD CONFIGURATION"
-echo "========================================"
-echo "Device:     ${DEVICE}"
-echo "Defconfig:  ${DEFCONFIG}"
-echo "Name:       ${KERNEL_NAME}"
-echo "Version:    ${VERSION}"
-echo "Type:       ${BUILD_TYPE}"
-echo "Output:     ${ZIPNAME}"
-echo "Date:       $(date '+%Y-%m-%d %H:%M:%S')"
-echo "Host:       $(uname -n) | $(nproc) cores"
-echo "========================================"
+echo -e "${CYAN}========================================${NC}"
+echo -e "${CYAN}    BUILD CONFIGURATION${NC}"
+echo -e "${CYAN}========================================${NC}"
+echo -e "${WHITE}Device:     ${DEVICE}${NC}"
+echo -e "${WHITE}Defconfig:  ${DEFCONFIG}${NC}"
+echo -e "${WHITE}Name:       ${KERNEL_NAME}${NC}"
+echo -e "${WHITE}Version:    ${VERSION}${NC}"
+echo -e "${WHITE}Type:       ${BUILD_TYPE}${NC}"
+echo -e "${WHITE}Output:     ${ZIPNAME}${NC}"
+echo -e "${WHITE}Date:       $(date '+%Y-%m-%d %H:%M:%S')${NC}"
+echo -e "${WHITE}Host:       $(uname -n) | $(nproc) cores${NC}"
+echo -e "${CYAN}========================================${NC}"
 
 # ===================== ANYKERNEL3 =====================
 if [ ! -d "$ANYKERNEL_DIR" ]; then
-    echo "Cloning AnyKernel3..."
-    git clone --depth=1 --branch master \
+    echo -e "${YELLOW}Cloning AnyKernel3...${NC}"
+    git clone --depth=1 --branch Bunny \
     https://github.com/JOD-BUNNY07/AnyKernel3.git \
     "$ANYKERNEL_DIR"
 fi
@@ -162,9 +174,9 @@ send_msg "Build Started
 ${DEVICE} | $(nproc) cores | ~10min"
 
 echo ""
-echo "========================================"
-echo "    BUILDING"
-echo "========================================"
+echo -e "${CYAN}========================================${NC}"
+echo -e "${CYAN}    BUILDING${NC}"
+echo -e "${CYAN}========================================${NC}"
 
 # Minimal cleanup
 rm -f "$ANYKERNEL_DIR/zImage" "$ANYKERNEL_DIR"/*.zip
@@ -190,7 +202,7 @@ CLANG_TRIPLE=aarch64-linux-gnu- \
 CROSS_COMPILE=aarch64-linux-gnu- \
 2>&1 | tee "$OUT_DIR/build.log"; then
 
-    echo "Build Failed"
+    echo -e "${RED}Build Failed${NC}"
     send_msg "Build Failed"
     send_file "$OUT_DIR/build.log" "Error Log"
     exit 1
@@ -200,18 +212,18 @@ fi
 IMG="$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
 
 if [ ! -f "$IMG" ]; then
-    echo "Image not found"
+    echo -e "${RED}Image not found${NC}"
     send_msg "Image Missing"
     exit 1
 fi
 
-echo "Image: $(du -h "$IMG" | cut -f1)"
+echo -e "${GREEN}Image: $(du -h "$IMG" | cut -f1)${NC}"
 
 # ===================== PACKAGING =====================
 echo ""
-echo "========================================"
-echo "    PACKAGING"
-echo "========================================"
+echo -e "${CYAN}========================================${NC}"
+echo -e "${CYAN}    PACKAGING${NC}"
+echo -e "${CYAN}========================================${NC}"
 
 cp "$IMG" "$ANYKERNEL_DIR/zImage"
 
@@ -219,7 +231,7 @@ cd "$ANYKERNEL_DIR"
 zip -r9q "$ZIPNAME" * -x ".git*" README.md "*.zip"
 
 ZIP_SIZE=$(du -h "$ZIPNAME" | cut -f1)
-echo "ZIP: $ZIP_SIZE"
+echo -e "${GREEN}ZIP: $ZIP_SIZE${NC}"
 
 # ===================== FINISH =====================
 END=$(date +%s)
@@ -228,13 +240,13 @@ MINS=$((DIFF / 60))
 SECS=$((DIFF % 60))
 
 echo ""
-echo "========================================"
-echo "    BUILD COMPLETE!"
-echo "========================================"
-echo "Output: ${ZIPNAME}"
-echo "Size:   ${ZIP_SIZE}"
-echo "Time:   ${MINS}m ${SECS}s"
-echo "========================================"
+echo -e "${GREEN}========================================${NC}"
+echo -e "${GREEN}    BUILD COMPLETE!${NC}"
+echo -e "${GREEN}========================================${NC}"
+echo -e "${WHITE}Output: ${ZIPNAME}${NC}"
+echo -e "${WHITE}Size:   ${ZIP_SIZE}${NC}"
+echo -e "${WHITE}Time:   ${MINS}m ${SECS}s${NC}"
+echo -e "${GREEN}========================================${NC}"
 
 send_file "$ANYKERNEL_DIR/$ZIPNAME" \
 "Build Success
@@ -246,5 +258,5 @@ Time: ${MINS}m ${SECS}s"
 # Move to out for artifact
 mv "$ANYKERNEL_DIR/$ZIPNAME" "$OUT_DIR/"
 
-echo "Zip saved to: ${OUT_DIR}/${ZIPNAME}"
+echo -e "${GREEN}Zip saved to: ${OUT_DIR}/${ZIPNAME}${NC}"
 
