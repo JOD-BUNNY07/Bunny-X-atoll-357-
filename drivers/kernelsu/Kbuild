@@ -52,43 +52,13 @@ obj-$(CONFIG_KSU) += kernelsu.o
 
 REPO_NAME := ReSukiSU
 
-KDIR := $(KDIR)
-
-GIT_BIN := /usr/bin/env PATH="$$PATH":/usr/bin:/usr/local/bin git
-
-KSU_SRC := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
-
-LOCAL_GIT_EXISTS := $(shell test -e $(KSU_SRC)/../.git && echo 1 || echo 0)
-
-ifeq ($(LOCAL_GIT_EXISTS),0)
-$(info -- Can't find $(REPO_NAME) git submodule!)
-$(info -- If you are using bazel to build this kernel,)
-$(info -- Please go to Kbuild and change KSU_SRC to the absolute path of the KSU kernel folder.)
-$(error You should use $(REPO_NAME) as a git submodule instead of copying code directly)
-endif
-
-ifdef KBUILD_EXTMOD
-include $(KSU_SRC)/tools/ddk_compatible.mk
-endif
-
-$(shell cd $(KSU_SRC); [ -f ../.git/shallow ] && $(GIT_BIN) fetch --unshallow)
-KSU_LOCAL_VERSION := $(shell cd $(KSU_SRC); $(GIT_BIN) rev-list --count HEAD)
-KSU_VERSION := $(shell expr 30000 + $(KSU_LOCAL_VERSION) + 700)
-
-KSU_TAG_NAME    := $(shell cd $(KSU_SRC); $(GIT_BIN) describe --abbrev=0 --tags 2>/dev/null || echo "v4.1.0")
-KSU_COMMIT_SHA  := $(shell cd $(KSU_SRC); $(GIT_BIN) rev-parse --short=8 HEAD 2>/dev/null || echo "unknown")
-ifneq ($(shell cd $(KSU_SRC); $(GIT_BIN) diff-index --quiet HEAD; echo $$?),0)
-KSU_COMMIT_SHA  := $(KSU_COMMIT_SHA)-dirty
-endif
-KSU_BRANCH_NAME := $(shell cd $(KSU_SRC); $(GIT_BIN) branch --show-current 2>/dev/null || echo "unknown")
-
-# call subst to process placeholders
-KSU_VERSION_FULL := $(subst ",,$(CONFIG_KSU_FULL_NAME_FORMAT))
-KSU_VERSION_FULL := $(subst %TAG_NAME%,$(KSU_TAG_NAME),$(KSU_VERSION_FULL))
-KSU_VERSION_FULL := $(subst %COMMIT_SHA%,$(KSU_COMMIT_SHA),$(KSU_VERSION_FULL))
-KSU_VERSION_FULL := $(subst %REPO_NAME%,$(REPO_NAME),$(KSU_VERSION_FULL))
-KSU_VERSION_FULL := $(subst %BRANCH_NAME%,$(KSU_BRANCH_NAME),$(KSU_VERSION_FULL))
-KSU_VERSION_FULL := $(subst %KSU_VERSION%,$(KSU_VERSION),$(KSU_VERSION_FULL))
+# ========== HARDCODED VERSION ==========
+KSU_VERSION := 35018
+KSU_TAG_NAME := v4.1.0
+KSU_COMMIT_SHA := 35018abc
+KSU_BRANCH_NAME := main
+KSU_VERSION_FULL := ReSukiSU_v4.1.0_35018-main
+# ======================================
 
 $(info -- $(REPO_NAME) version code: $(KSU_VERSION))
 $(info -- $(REPO_NAME) version name: $(KSU_VERSION_FULL))
@@ -102,9 +72,7 @@ endif
 
 KERNEL_VERSION := $(VERSION).$(PATCHLEVEL)
 KERNEL_TYPE := Non-GKI
-# Check for GKI 2.0 (5.10+ or 6.x+)
 ifneq ($(shell test \( $(VERSION) -ge 5 -a $(PATCHLEVEL) -ge 10 \) -o $(VERSION) -ge 6; echo $$?),0)
-# Check for GKI 1.0 (5.4)
 ifeq ($(shell test $(VERSION)-$(PATCHLEVEL) = 5-4; echo $$?),0)
 KERNEL_TYPE := GKI 1.0
 endif
@@ -141,11 +109,9 @@ endif
 
 ifdef CONFIG_KSU_TRACEPOINT_HOOK
   $(info -- $(REPO_NAME): using Tracepoint Syscall Redirect Hook)
-
   ifndef CONFIG_KSU_DISABLE_MANAGER
     kernelsu-objs += manager/pkg_observer.o
   endif
-
   kernelsu-objs += hook/syscall_hook_manager.o
   kernelsu-objs += hook/syscall_event_bridge.o
   kernelsu-objs += hook/tp_marker.o
@@ -194,11 +160,6 @@ else
 endif
 
 ifndef CONFIG_KSU_TRACEPOINT_HOOK
-  # For old kernel, pkg observer maybe let system freeze
-  # https://github.com/ReSukiSU/ReSukiSU/issues/82#issuecomment-4015396974
-  #
-  # 6.7- we use lsm_hooks to call ksu_handle_rename
-  # 6.8+ we use pkg_observer to track_throne
   ifeq ($(shell test \( $(VERSION) -lt 6 -o \( $(VERSION) -eq 6 -a $(PATCHLEVEL) -lt 8 \) \) && echo y),y)
       kernelsu-objs += hook/lsm_hooks.o
   else
@@ -210,7 +171,6 @@ endif
 
 include $(KSU_SRC)/tools/kernel_compat.mk
 
-# Custom Signs
 ifdef KSU_EXPECTED_SIZE
 ccflags-y += -DEXPECTED_SIZE=$(KSU_EXPECTED_SIZE)
 $(info -- Custom KernelSU Manager signature size: $(KSU_EXPECTED_SIZE))
