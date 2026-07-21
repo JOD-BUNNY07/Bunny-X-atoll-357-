@@ -2,13 +2,13 @@ name: BunnyX Kernel Build
 
 on:
   push:
-    branches: [Test, Test-2, fsync, Ksu-3.3.0-susfs-2.2.0-backup,  mcqueen, mcqueen-ksu]
+    branches: [Test, Test-2, fsync, ResukiSU-Susfs-Test, Ksu-3.3.0-susfs-2.2.0-backup,  mcqueen, mcqueen-ksu]
   workflow_dispatch:
     inputs:
       branch:
         description: 'Branch to build'
         required: true
-        default: 'Ksu-3.3.0-susfs-2.2.0-backup'
+        default: 'ResukiSU-Susfs-Test'
         type: choice
         options:
           - Test
@@ -17,6 +17,7 @@ on:
           - mcqueen
           - mcqueen-ksu
           - Ksu-3.3.0-susfs-2.2.0-backup
+          - ResukiSU-Susfs-Test
       defconfig:
         description: 'Defconfig'
         required: true
