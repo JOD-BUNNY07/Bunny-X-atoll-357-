@@ -2216,7 +2216,6 @@
 			mboxes = <&apcs_glb 8>;
 			mbox-names = "adsp_smem";
 			interrupts = <GIC_SPI 156 IRQ_TYPE_EDGE_RISING>;
-
 			label = "adsp";
 			qcom,glink-label = "lpass";
 
