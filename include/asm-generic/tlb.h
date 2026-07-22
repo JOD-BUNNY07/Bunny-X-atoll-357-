@@ -250,7 +250,7 @@ static inline unsigned long tlb_get_unmap_size(struct mmu_gather *tlb)
 #define __tlb_end_vma(tlb, vma)					\
 	do {							\
 		if (!tlb->fullmm)				\
-			tlb_flush_mmu_tlbonly(tlb);		\
+			tlb_flush_mmu_free(tlb);		\
 	} while (0)
 
 #ifndef tlb_end_vma
