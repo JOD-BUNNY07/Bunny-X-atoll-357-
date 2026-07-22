@@ -1,166 +1,236 @@
-#include <linux/lsm_hooks.h>
-#include <linux/uidgid.h>
 #include <linux/version.h>
-#include <linux/binfmts.h>
-#include <linux/err.h>
-#include <linux/atomic.h>
+#include <linux/security.h>
+#include <linux/init.h>
+#include <linux/sched.h>
+#include <linux/cred.h>
+#include <linux/key.h>
+#include <linux/string.h>
+#include <linux/kernel.h>
+#include <linux/uidgid.h>
 
-#include "klog.h" // IWYU pragma: keep
-#include "runtime/ksud_boot.h"
-#include "compat/kernel_compat.h"
-#include "setuid_hook.h"
 #include "manager/throne_tracker.h"
+#include "compat/kernel_compat.h"
+#include "ksu.h"
+#include "klog.h"
 
-#ifndef KSU_KPROBES_HOOK
+#ifdef CONFIG_KSU_MANUAL_HOOK_AUTO_SETUID_HOOK
+#include "setuid_hook.h"
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0) ||                           \
-	defined(CONFIG_IS_HW_HISI) || defined(CONFIG_KSU_ALLOWLIST_WORKAROUND)
-struct key *init_session_keyring = NULL;
-
-static int ksu_key_permission(key_ref_t key_ref, const struct cred *cred,
-			      unsigned perm)
+static int ksu_task_fix_setuid(struct cred *new, const struct cred *old, int flags)
 {
-	if (init_session_keyring != NULL) {
-		return 0;
-	}
-	if (strcmp(current->comm, "init")) {
-		// we are only interested in `init` process
-		return 0;
-	}
-	init_session_keyring = cred->session_keyring;
-	pr_info("kernel_compat: got init_session_keyring\n");
-	return 0;
+    uid_t new_uid = ksu_get_uid_t(new->uid);
+    uid_t old_uid = ksu_get_uid_t(old->uid);
+
+    return ksu_handle_setuid(new_uid, old_uid);
 }
 #endif
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
-static int ksu_inode_rename(struct mnt_idmap *idmap, struct inode *old_dir, struct dentry *old_dentry,
-			    struct inode *new_dir, struct dentry *new_dentry)
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
-static int ksu_inode_rename(struct user_namespace *mnt_userns, struct inode *old_dir, struct dentry *old_dentry,
-			    struct inode *new_dir, struct dentry *new_dentry)
+#ifdef CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK
+#ifdef KSU_COMPAT_USE_STATIC_KEY
+extern struct static_key_true ksu_init_rc_hook;
 #else
-static int ksu_inode_rename(struct inode *old_dir, struct dentry *old_dentry,
-			    struct inode *new_dir, struct dentry *new_dentry)
-#endif
-{
-	// skip kernel threads
-	if (!current->mm) {
-		return 0;
-	}
-
-	// skip non system uid
-	if (current_uid().val != 1000) {
-		return 0;
-	}
-
-	if (!old_dentry || !new_dentry) {
-		return 0;
-	}
-
-	// Use d_name.name instead of the dangerous d_iname 
-	// which can cause OOPS when the dentry is in an inconsistent state during rename
-	if (strcmp(new_dentry->d_name.name, "packages.list")) {
-		return 0;
-	}
-
-	char path[128];
-	char *buf = dentry_path_raw(new_dentry, path, sizeof(path));
-	if (IS_ERR(buf)) {
-		pr_err("dentry_path_raw failed.\n");
-		return 0;
-	}
-
-	if (!strstr(buf, "/system/packages.list")) {
-		return 0;
-	}
-
-	// Do not track anything until the system has fully booted.
-	// Parsing files during early boot from an LSM hook can causes VFS deadlocks
-	if (!ksu_boot_completed) {
-		return 0;
-	}
-
-	pr_debug("renameat: %s -> %s, new path: %s\n", old_dentry->d_name.name,
-		new_dentry->d_name.name, buf);
-
-	// Thread-safe execution using atomic operations to prevent race conditions
-	// if system_server threads execute this hook concurrently.
-	static atomic_t first_time = ATOMIC_INIT(1);
-
-	// atomic_xchg swaps the value to 0 and returns the old value.
-	// If the old value was 1, we are the first thread to reach here.
-	if (atomic_xchg(&first_time, 0) == 1) {
-		track_throne(true);
-	} else {
-		track_throne(false);
-	}
-
-	return 0;
-}
-
-static int ksu_task_fix_setuid(struct cred *new, const struct cred *old,
-			       int flags)
-{
-	kuid_t new_uid = new->uid;
-	kuid_t new_euid = new->euid;
-
-	return ksu_handle_setresuid((uid_t)new_uid.val, (uid_t)new_euid.val,
-				    (uid_t)new_uid.val);
-}
-
-#ifndef DEVPTS_SUPER_MAGIC
-#define DEVPTS_SUPER_MAGIC	0x1cd1
+extern bool ksu_init_rc_hook __read_mostly;
 #endif
 
-//extern int __ksu_handle_devpts(struct inode *inode); // sucompat.c
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 2, 0) && !defined(KSU_COMPAT_HAS_LIST_OF_LSM_HOOKS)
+#include <linux/stop_machine.h>
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
-int ksu_inode_permission(struct mnt_idmap *idmap, struct inode *inode, int mask)
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
-int ksu_inode_permission(struct user_namespace *mnt_userns, struct inode *inode, int mask)
+static int ksu_unregister_file_permission(void *data);
+#endif
+
+static int ksu_file_permission(struct file *file, int mask)
+{
+#ifdef KSU_COMPAT_USE_STATIC_KEY
+    if (static_branch_unlikely(&ksu_init_rc_hook))
+        ksu_handle_initrc(file);
 #else
-int ksu_inode_permission(struct inode *inode, int mask)
+    if (unlikely(ksu_init_rc_hook))
+        ksu_handle_initrc(file);
+    else {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 2, 0) && !defined(KSU_COMPAT_HAS_LIST_OF_LSM_HOOKS)
+        // 4.2- always don't have static key
+        // static key since 4.3
+        // there really unregister file_permission
+        stop_machine(ksu_unregister_file_permission, NULL, NULL);
 #endif
-{
-	if (unlikely(inode && inode->i_sb && inode->i_sb->s_magic == DEVPTS_SUPER_MAGIC)) {
-		//__ksu_handle_devpts(inode);
-	}
-	return 0;
+    }
+#endif
+
+    return 0;
 }
+#endif
+
+static int ksu_inode_rename(struct inode *old_inode, struct dentry *old_dentry, struct inode *new_inode,
+                            struct dentry *new_dentry)
+{
+    ksu_handle_rename(old_dentry, new_dentry);
+
+    return 0;
+}
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 2, 0) || defined(KSU_COMPAT_HAS_LIST_OF_LSM_HOOKS)
+#include <linux/lsm_hooks.h>
 
 static struct security_hook_list ksu_hooks[] = {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0) ||                           \
-	defined(CONFIG_IS_HW_HISI) || defined(CONFIG_KSU_ALLOWLIST_WORKAROUND)
-	LSM_HOOK_INIT(key_permission, ksu_key_permission),
-#endif
-	LSM_HOOK_INIT(inode_permission, ksu_inode_permission),
-	LSM_HOOK_INIT(inode_rename, ksu_inode_rename),
-	LSM_HOOK_INIT(task_fix_setuid, ksu_task_fix_setuid)
-};
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0)
-static const struct lsm_id ksu_lsmid = {
-	.name = "ksu",
-	.id = 912,
-};
+    LSM_HOOK_INIT(inode_rename, ksu_inode_rename),
+#ifdef CONFIG_KSU_MANUAL_HOOK_AUTO_SETUID_HOOK
+    LSM_HOOK_INIT(task_fix_setuid, ksu_task_fix_setuid),
 #endif
 
-void __init ksu_lsm_hook_init(void)
-{
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0)
-	security_add_hooks(ksu_hooks, ARRAY_SIZE(ksu_hooks), &ksu_lsmid);
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
-	security_add_hooks(ksu_hooks, ARRAY_SIZE(ksu_hooks), "ksu");
-#else
-	// https://elixir.bootlin.com/linux/v4.10.17/source/include/linux/lsm_hooks.h#L1892
-	security_add_hooks(ksu_hooks, ARRAY_SIZE(ksu_hooks));
+#ifdef CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK
+    LSM_HOOK_INIT(file_permission, ksu_file_permission),
 #endif
-	pr_info("LSM hooks initialized.\n");
-}
-#else
-void __init ksu_lsm_hook_init(void)
+};
+
+void __init ksu_lsm_hook_built_in_init(void)
 {
-	return;
+    if (ARRAY_SIZE(ksu_hooks) == 0)
+        return;
+
+        // https://github.com/torvalds/linux/commit/d69dece5f5b6bc7a5e39d2b6136ddc69469331fe
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0) || defined(KSU_COMPAT_REQUIRE_PROVIDE_LSM_NAME)
+    security_add_hooks(ksu_hooks, ARRAY_SIZE(ksu_hooks), "ksu");
+#else
+    // https://elixir.bootlin.com/linux/v4.10.17/source/include/linux/lsm_hooks.h#L1892
+    security_add_hooks(ksu_hooks, ARRAY_SIZE(ksu_hooks));
+#endif
+}
+#else // linux kernel >= 4.2 || KSU_COMPAT_HAS_LIST_OF_LSM_HOOKS
+#include "avc_ss.h"
+#include "feature/selinux_hide.h"
+#include "infra/symbol_resolver.h"
+
+#ifdef CONFIG_KSU_MANUAL_HOOK_AUTO_SETUID_HOOK
+#define IF_CONFIG_KSU_MANUAL_HOOK_AUTO_SETUID_HOOK(x) x
+#else
+#define IF_CONFIG_KSU_MANUAL_HOOK_AUTO_SETUID_HOOK(x)
+#endif
+
+#ifdef CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK
+#define IF_CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK(x) x
+#else
+#define IF_CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK(x)
+#endif
+
+#define LSM_HOOK_LIST(HOOK_ITEM)                                                                                       \
+    HOOK_ITEM(inode_rename, ksu_inode_rename,                                                                          \
+              (struct inode * old_inode, struct dentry * old_dentry, struct inode * new_inode,                         \
+               struct dentry * new_dentry),                                                                            \
+              (old_inode, old_dentry, new_inode, new_dentry))                                                          \
+    IF_CONFIG_KSU_MANUAL_HOOK_AUTO_SETUID_HOOK(HOOK_ITEM(task_fix_setuid, ksu_task_fix_setuid,                         \
+                                                         (struct cred * new, const struct cred *old, int flags),       \
+                                                         (new, old, flags)))                                           \
+    IF_CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK(                                                                        \
+        HOOK_ITEM(file_permission, ksu_file_permission, (struct file * file, int mask), (file, mask)))
+
+#define STRIP_PARENS(...) __VA_ARGS__
+
+#define GENERATE_LSM_HOOK_DEFS(TARGET, HANDLER, ARGS_DECL, ARGS_CALL)                                                  \
+    static int(*orig_##TARGET) STRIP_PARENS(ARGS_DECL) = NULL;                                                         \
+                                                                                                                       \
+    static int hook_##TARGET STRIP_PARENS(ARGS_DECL)                                                                   \
+    {                                                                                                                  \
+        HANDLER STRIP_PARENS(ARGS_CALL);                                                                               \
+        if (orig_##TARGET)                                                                                             \
+            return orig_##TARGET STRIP_PARENS(ARGS_CALL);                                                              \
+        return 0;                                                                                                      \
+    }
+
+LSM_HOOK_LIST(GENERATE_LSM_HOOK_DEFS)
+
+setprocattr_fn ksu_orig_setprocattr;
+
+#undef STRIP_PARENS
+#undef GENERATE_LSM_HOOK_DEFS
+
+static uintptr_t selinux_ops_addr = 0;
+
+static inline void set_selinux_ops()
+{
+    struct security_operations *ops = NULL;
+
+#ifdef CONFIG_KALLSYMS_ALL
+    ops = (struct security_operations *)find_kernel_symbol_exact("selinux_ops");
+#else
+    extern struct security_operations selinux_ops;
+
+    ops = (struct security_operations *)&selinux_ops;
+#endif
+
+    if (!ops)
+        return;
+
+    selinux_ops_addr = (uintptr_t)ops;
+}
+
+#define ASSIGN_ORIG_AND_HOOK(TARGET, HANDLER, ARGS_DECL, ARGS_CALL)                                                    \
+    orig_##TARGET = ops->TARGET;                                                                                       \
+    ops->TARGET = hook_##TARGET;
+
+static int ksu_register_lsm_hook(void *data)
+{
+    struct security_operations *ops = (struct security_operations *)selinux_ops_addr;
+
+    LSM_HOOK_LIST(ASSIGN_ORIG_AND_HOOK)
+    return 0;
+}
+#undef ASSIGN_ORIG_AND_HOOK
+
+void ksu_unregister_setprocattr_lsm_hook()
+{
+    struct security_operations *ops = (struct security_operations *)selinux_ops_addr;
+
+    if (ksu_orig_setprocattr) {
+        ops->setprocattr = ksu_orig_setprocattr;
+    }
+}
+
+void ksu_register_setprocattr_lsm_hook()
+{
+    struct security_operations *ops = (struct security_operations *)selinux_ops_addr;
+
+    ksu_orig_setprocattr = ops->setprocattr;
+    ops->setprocattr = ksu_handle_selinux_setprocattr;
+}
+
+#ifdef CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK
+static int ksu_unregister_file_permission(void *data)
+{
+    struct security_operations *ops = (struct security_operations *)selinux_ops_addr;
+
+    if (orig_file_permission) {
+        pr_info("%s: restoring file_permission 0x%lx -> 0x%lx\n", __func__, (long)ops->file_permission,
+                (long)orig_file_permission);
+        ops->file_permission = orig_file_permission;
+    }
+
+    return 0;
 }
 #endif
+
+void __init ksu_lsm_hook_built_in_init(void)
+{
+    set_selinux_ops();
+
+    struct security_operations *ops = (struct security_operations *)selinux_ops_addr;
+    if (!ops)
+        goto show_not_found_warning;
+
+    if (strcmp((char *)ops, "selinux"))
+        goto show_not_found_warning;
+
+    pr_info("%s: selinux_ops: 0x%lx .name = %s\n", __func__, (long)ops, (const char *)ops);
+
+    stop_machine(ksu_register_lsm_hook, NULL, NULL);
+    return;
+show_not_found_warning:
+    pr_alert("*************************************************************");
+    pr_alert("**     NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE    **");
+    pr_alert("**                                                         **");
+    pr_alert("**                 selinux_ops NOT FOUND                   **");
+    pr_alert("**     ReSukiSU won't working due lost necessary hooks     **");
+    pr_alert("**                                                         **");
+    pr_alert("**     NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE    **");
+    pr_alert("*************************************************************");
+}
+#endif // linux kernel < 4.2

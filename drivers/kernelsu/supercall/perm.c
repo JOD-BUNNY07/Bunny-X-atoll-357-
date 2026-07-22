@@ -4,29 +4,31 @@
 #include "manager/manager_identity.h"
 #include "policy/allowlist.h"
 
-// Permission check functions
+#include "compat/kernel_compat.h"
+
 bool only_manager(void)
 {
-	return is_manager();
+    return is_manager();
 }
 
 bool only_root(void)
 {
-	return current_uid().val == 0;
+    return ksu_get_uid_t(current_uid()) == 0;
 }
 
 bool manager_or_root(void)
 {
-	return current_uid().val == 0 || is_manager();
+    return ksu_get_uid_t(current_uid()) == 0 || is_manager();
 }
 
 bool always_allow(void)
 {
-	return true; // No permission check
+    return true;
 }
 
 bool allowed_for_su(void)
 {
-	bool is_allowed = is_manager() || ksu_is_allow_uid_for_current(current_uid().val);
-	return is_allowed;
+    bool is_allowed = is_manager() || ksu_is_allow_uid_for_current(ksu_get_uid_t(current_uid()));
+
+    return is_allowed;
 }

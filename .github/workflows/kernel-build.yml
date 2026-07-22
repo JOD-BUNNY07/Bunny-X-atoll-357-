@@ -2,19 +2,30 @@ name: BunnyX Kernel Build
 
 on:
   push:
-    branches: [Test, fsync, mcqueen, mcqueen-ksu]
+    branches: [Test, Test-2, fsync, ResukiSU-Susfs-Test, Ksu-3.3.0-susfs-2.2.0-backup,  mcqueen, mcqueen-ksu]
   workflow_dispatch:
     inputs:
       branch:
         description: 'Branch to build'
         required: true
-        default: 'mcqueen-ksu'
+        default: 'ResukiSU-Susfs-Test'
         type: choice
         options:
           - Test
+          - Test-2
           - fsync
           - mcqueen
           - mcqueen-ksu
+          - Ksu-3.3.0-susfs-2.2.0-backup
+          - ResukiSU-Susfs-Test
+      defconfig:
+        description: 'Defconfig'
+        required: true
+        default: 'atoll_defconfig'
+        type: choice
+        options:
+          - atoll_defconfig
+          - atoll-perf_defconfig
 
 permissions:
   contents: write
@@ -28,6 +39,7 @@ jobs:
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       BRANCH: ${{ github.event.inputs.branch || github.ref_name }}
+      DEFCONFIG: ${{ github.event.inputs.defconfig || 'atoll_defconfig' }}
 
     steps:
       - name: Checkout
@@ -174,15 +186,15 @@ jobs:
         if: success() && env.BUILD_EXIT == '0'
         uses: actions/upload-artifact@v4
         with:
-          name: BunnyX-Kernel-${{ env.BRANCH }}-${{ github.run_number }}
-          path: AnyKernel3/*.zip
+          name: ${{ env.KERNEL_FULL_NAME }}
+          path: out/*.zip
           retention-days: 7
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/') && env.BUILD_EXIT == '0'
         uses: softprops/action-gh-release@v1
         with:
-          files: AnyKernel3/*.zip
+          files: out/*.zip
           name: "BunnyX Kernel ${{ github.ref_name }}"
 
       - name: Check Build Status
@@ -190,4 +202,4 @@ jobs:
         run: |
           echo "Build failed with exit code ${{ env.BUILD_EXIT }}"
           exit 1
-          
+

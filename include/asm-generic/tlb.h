@@ -181,15 +181,6 @@ static inline void __tlb_reset_range(struct mmu_gather *tlb)
 	tlb->cleared_p4ds = 0;
 }
 
-static inline void tlb_flush_mmu_tlbonly(struct mmu_gather *tlb)
-{
-	if (!tlb->end)
-		return;
-
-	tlb_flush(tlb);
-	mmu_notifier_invalidate_range(tlb->mm, tlb->start, tlb->end);
-	__tlb_reset_range(tlb);
-}
 
 static inline void tlb_remove_page_size(struct mmu_gather *tlb,
 					struct page *page, int page_size)
@@ -259,7 +250,7 @@ static inline unsigned long tlb_get_unmap_size(struct mmu_gather *tlb)
 #define __tlb_end_vma(tlb, vma)					\
 	do {							\
 		if (!tlb->fullmm)				\
-			tlb_flush_mmu_tlbonly(tlb);		\
+			tlb_flush_mmu(tlb);		\
 	} while (0)
 
 #ifndef tlb_end_vma

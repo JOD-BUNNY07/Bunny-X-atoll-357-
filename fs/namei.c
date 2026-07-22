@@ -3687,7 +3687,7 @@ finish_open_created:
 	if (error)
 		goto out;
 	BUG_ON(*opened & FILE_OPENED); /* once it's opened, it's opened */
-	error = vfs_open(&nd->path, file);
+    error = vfs_open(&nd->path, file);
 	if (error)
 		goto out;
 	*opened |= FILE_OPENED;

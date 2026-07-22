@@ -107,24 +107,6 @@
 
 #include "../../lib/kstrtox.h"
 
-#ifdef OPLUS_FEATURE_HEALTHINFO
-// Liujie.Xie@TECH.Kernel.Sched, 2019/08/29, add for jank monitor
-#ifdef CONFIG_OPPO_JANK_INFO
-#include <linux/oppo_healthinfo/oppo_jank_monitor.h>
-#endif
-#endif /* OPLUS_FEATURE_HEALTHINFO */
-
-#ifdef OPLUS_FEATURE_UIFIRST
-// XieLiujie@BSP.KERNEL.PERFORMANCE, 2020/05/25, Add for UIFirst
-#define GLOBAL_SYSTEM_UID KUIDT_INIT(1000)
-#define GLOBAL_SYSTEM_GID KGIDT_INIT(1000)
-extern const struct file_operations proc_static_ux_operations;
-#ifdef CONFIG_CAMERA_OPT
-extern const struct file_operations proc_camera_opt_operations;
-#endif
-extern bool is_special_entry(struct dentry *dentry, const char* special_proc);
-#endif /* OPLUS_FEATURE_UIFIRST */
-
 /* NOTE:
  *	Implementing inode permission operations in /proc is almost
  *	certainly an error.  Permission checks need to happen during
@@ -165,13 +147,9 @@ struct pid_entry {
 #define REG(NAME, MODE, fops)				\
 	NOD(NAME, (S_IFREG|(MODE)), NULL, &fops, {})
 #define ONE(NAME, MODE, show)				\
-	NOD(NAME, (S_IFREG|(MODE)),			\
+	NOD(NAME, (S_IFREG|(MODE)), 			\
 		NULL, &proc_single_file_operations,	\
 		{ .proc_show = show } )
-#define ATTR(LSM, NAME, MODE)				\
-	NOD(NAME, (S_IFREG|(MODE)),			\
-		NULL, &proc_pid_attr_operations,	\
-		{ .lsm = LSM })
 
 /*
  * Count the number of hardlinks for the pid_entry table, excluding the .
@@ -811,9 +789,6 @@ static ssize_t mem_rw(struct file *file, char __user *buf,
 	ssize_t copied;
 	char *page;
 	unsigned int flags;
-#ifdef CONFIG_KSU_SUSFS_SUS_MAP
-	struct vm_area_struct *vma;
-#endif
 
 	if (!mm)
 		return 0;
@@ -830,20 +805,6 @@ static ssize_t mem_rw(struct file *file, char __user *buf,
 
 	while (count > 0) {
 		size_t this_len = min_t(size_t, count, PAGE_SIZE);
-#ifdef CONFIG_KSU_SUSFS_SUS_MAP
-		vma = find_vma(mm, addr);
-		if (vma && vma->vm_file) {
-			struct inode *inode = file_inode(vma->vm_file);
-			if (SUSFS_IS_INODE_SUS_MAP(inode)) {
-				if (write) {
-					copied = -EFAULT;
-				} else {
-					copied = -EIO;
-				}
-				break;
-			}
-		}
-#endif
 		if (write && copy_from_user(page, buf, this_len)) {
 			copied = -EFAULT;
 			break;
@@ -1089,7 +1050,32 @@ static int __set_oom_adj(struct file *file, int oom_adj, bool legacy)
 		}
 	}
 
+#ifdef CONFIG_HSWAP
+	if (!task->signal->oom_score_adj) {
+		long diff_time, diff_time_jiffies;
+		diff_time = ((long)jiffies - (long)task->signal->before_time);
+		task->signal->top_time += diff_time;
+		diff_time_jiffies = diff_time;
+		diff_time *= ((MSEC_PER_SEC) / HZ);
+		if (diff_time > 3000) {
+			task->signal->top_count++;
+			task->signal->reclaimed = 0;
+			if (strncmp(task->comm, "earchbox:search", 15) == 0) {
+				task->signal->reclaimed = 1;
+				task->signal->top_time -= diff_time_jiffies;
+				task->signal->top_count--;
+			}
+		}
+	}
+#endif
+
 	task->signal->oom_score_adj = oom_adj;
+
+#ifdef CONFIG_HSWAP
+	if (!task->signal->oom_score_adj)
+		task->signal->before_time = (long)jiffies;
+#endif
+
 	if (!legacy && has_capability_noaudit(current, CAP_SYS_RESOURCE))
 		task->signal->oom_score_adj_min = (short)oom_adj;
 	trace_oom_score_adj_update(task);
@@ -1218,6 +1204,7 @@ static ssize_t oom_score_adj_write(struct file *file, const char __user *buf,
 	}
 
 	err = __set_oom_adj(file, oom_score_adj, false);
+
 out:
 	return err < 0 ? err : count;
 }
@@ -2055,13 +2042,6 @@ int pid_revalidate(struct dentry *dentry, unsigned int flags)
 	if (task) {
 		task_dump_owner(task, inode->i_mode, &inode->i_uid, &inode->i_gid);
 
-#ifdef OPLUS_FEATURE_UIFIRST
-// XieLiujie@BSP.KERNEL.PERFORMANCE, 2020/05/25, Add for UIFirst
-		if (is_special_entry(dentry, "static_ux")) {
-			inode->i_uid = GLOBAL_SYSTEM_UID;
-			inode->i_gid = GLOBAL_SYSTEM_GID;
-		}
-#endif /* OPLUS_FEATURE_UIFIRST */
 		inode->i_mode &= ~(S_ISUID | S_ISGID);
 		security_task_to_inode(task, inode);
 		put_task_struct(task);
@@ -2381,9 +2361,6 @@ proc_map_files_readdir(struct file *file, struct dir_context *ctx)
 	struct map_files_info info;
 	struct map_files_info *p;
 	int ret;
-#ifdef CONFIG_KSU_SUSFS_SUS_MAP
-	struct inode *inode;
-#endif
 
 	ret = -ENOENT;
 	task = get_proc_task(file_inode(file));
@@ -2437,8 +2414,7 @@ proc_map_files_readdir(struct file *file, struct dir_context *ctx)
 			if (!vma->vm_file)
 				continue;
 #ifdef CONFIG_KSU_SUSFS_SUS_MAP
-			inode = file_inode(vma->vm_file);
-			if (SUSFS_IS_INODE_SUS_MAP(inode))
+			if (SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))
 				continue;
 #endif
 			if (++pos <= ctx->pos)
@@ -2778,9 +2754,10 @@ static ssize_t proc_pid_attr_read(struct file * file, char __user * buf,
 	if (!task)
 		return -ESRCH;
 
-	length = security_getprocattr(task, PROC_I(inode)->op.lsm,
-				      (char*)file->f_path.dentry->d_name.name,
-				      &p);
+	length = security_getprocattr(task,
+                              NULL,
+                              (char *)file->f_path.dentry->d_name.name,
+                              &p);
 	put_task_struct(task);
 	if (length > 0)
 		length = simple_read_from_buffer(buf, count, ppos, p, length);
@@ -2792,53 +2769,52 @@ static ssize_t proc_pid_attr_write(struct file * file, const char __user * buf,
 				   size_t count, loff_t *ppos)
 {
 	struct inode * inode = file_inode(file);
-	struct task_struct *task;
 	void *page;
-	int rv;
+	ssize_t length;
+	struct task_struct *task = get_proc_task(inode);
 
 	/* A task may only write when it was the opener. */
 	if (file->private_data != current->mm)
 		return -EPERM;
 
-	rcu_read_lock();
-	task = pid_task(proc_pid(inode), PIDTYPE_PID);
-	if (!task) {
-		rcu_read_unlock();
-		return -ESRCH;
-	}
+	length = -ESRCH;
+	if (!task)
+		goto out_no_task;
+
 	/* A task may only write its own attributes. */
-	if (current != task) {
-		rcu_read_unlock();
-		return -EACCES;
-	}
-	rcu_read_unlock();
+	length = -EACCES;
+	if (current != task)
+		goto out;
 
 	if (count > PAGE_SIZE)
 		count = PAGE_SIZE;
 
 	/* No partial writes. */
+	length = -EINVAL;
 	if (*ppos != 0)
-		return -EINVAL;
+		goto out;
 
 	page = memdup_user(buf, count);
 	if (IS_ERR(page)) {
-		rv = PTR_ERR(page);
+		length = PTR_ERR(page);
 		goto out;
 	}
 
 	/* Guard against adverse ptrace interaction */
-	rv = mutex_lock_interruptible(&current->signal->cred_guard_mutex);
-	if (rv < 0)
+	length = mutex_lock_interruptible(&current->signal->cred_guard_mutex);
+	if (length < 0)
 		goto out_free;
 
-	rv = security_setprocattr(PROC_I(inode)->op.lsm,
-				  file->f_path.dentry->d_name.name, page,
-				  count);
+	length = security_setprocattr(NULL,
+                              file->f_path.dentry->d_name.name,
+                              page, count);
 	mutex_unlock(&current->signal->cred_guard_mutex);
 out_free:
 	kfree(page);
 out:
-	return rv;
+	put_task_struct(task);
+out_no_task:
+	return length;
 }
 
 static const struct file_operations proc_pid_attr_operations = {
@@ -2849,53 +2825,13 @@ static const struct file_operations proc_pid_attr_operations = {
 	.release	= mem_release,
 };
 
-#define LSM_DIR_OPS(LSM) \
-static int proc_##LSM##_attr_dir_iterate(struct file *filp, \
-			     struct dir_context *ctx) \
-{ \
-	return proc_pident_readdir(filp, ctx, \
-				   LSM##_attr_dir_stuff, \
-				   ARRAY_SIZE(LSM##_attr_dir_stuff)); \
-} \
-\
-static const struct file_operations proc_##LSM##_attr_dir_ops = { \
-	.read		= generic_read_dir, \
-	.iterate	= proc_##LSM##_attr_dir_iterate, \
-	.llseek		= default_llseek, \
-}; \
-\
-static struct dentry *proc_##LSM##_attr_dir_lookup(struct inode *dir, \
-				struct dentry *dentry, unsigned int flags) \
-{ \
-	return proc_pident_lookup(dir, dentry, \
-				  LSM##_attr_dir_stuff, \
-				  ARRAY_SIZE(LSM##_attr_dir_stuff)); \
-} \
-\
-static const struct inode_operations proc_##LSM##_attr_dir_inode_ops = { \
-	.lookup		= proc_##LSM##_attr_dir_lookup, \
-	.getattr	= pid_getattr, \
-	.setattr	= proc_setattr, \
-}
-
-#ifdef CONFIG_SECURITY_SMACK
-static const struct pid_entry smack_attr_dir_stuff[] = {
-	ATTR("smack", "current",	0666),
-};
-LSM_DIR_OPS(smack);
-#endif
-
 static const struct pid_entry attr_dir_stuff[] = {
-	ATTR(NULL, "current",		0666),
-	ATTR(NULL, "prev",		0444),
-	ATTR(NULL, "exec",		0666),
-	ATTR(NULL, "fscreate",		0666),
-	ATTR(NULL, "keycreate",		0666),
-	ATTR(NULL, "sockcreate",	0666),
-#ifdef CONFIG_SECURITY_SMACK
-	DIR("smack",			0555,
-	    proc_smack_attr_dir_inode_ops, proc_smack_attr_dir_ops),
-#endif
+	REG("current",    S_IRUGO|S_IWUGO, proc_pid_attr_operations),
+	REG("prev",       S_IRUGO,	   proc_pid_attr_operations),
+	REG("exec",       S_IRUGO|S_IWUGO, proc_pid_attr_operations),
+	REG("fscreate",   S_IRUGO|S_IWUGO, proc_pid_attr_operations),
+	REG("keycreate",  S_IRUGO|S_IWUGO, proc_pid_attr_operations),
+	REG("sockcreate", S_IRUGO|S_IWUGO, proc_pid_attr_operations),
 };
 
 static int proc_attr_dir_readdir(struct file *file, struct dir_context *ctx)
@@ -3373,20 +3309,23 @@ static int proc_pid_patch_state(struct seq_file *m, struct pid_namespace *ns,
 }
 #endif /* CONFIG_LIVEPATCH */
 
+#ifdef CONFIG_HSWAP
+static int proc_hswap_factors(struct seq_file *m, struct pid_namespace *ns,
+		struct pid *pid, struct task_struct *task)
+{
+	seq_printf(m, "task(%s) top time = %ld, top count = %d\n",
+			task->comm,
+			task->signal->top_time,
+			task->signal->top_count);
+	return 0;
+}
+#endif
+
 /*
  * Thread groups
  */
 static const struct file_operations proc_task_operations;
 static const struct inode_operations proc_task_inode_operations;
-
-#if defined(OPLUS_FEATURE_VIRTUAL_RESERVE_MEMORY) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
-/* 
- * read the reserved mmaps and reserved area
- */
-extern int proc_pid_reserve_area(struct seq_file *m, struct pid_namespace *ns,
-		struct pid *pid, struct task_struct *task);
-extern const struct file_operations proc_pid_rmaps_operations;
-#endif
 
 static const struct pid_entry tgid_base_stuff[] = {
 	DIR("task",       S_IRUGO|S_IXUGO, proc_task_inode_operations, proc_task_operations),
@@ -3425,10 +3364,6 @@ static const struct pid_entry tgid_base_stuff[] = {
 	ONE("stat",       S_IRUGO, proc_tgid_stat),
 	ONE("statm",      S_IRUGO, proc_pid_statm),
 	REG("maps",       S_IRUGO, proc_pid_maps_operations),
-#if defined(OPLUS_FEATURE_VIRTUAL_RESERVE_MEMORY) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
-	REG("reserve_maps", S_IRUSR, proc_pid_rmaps_operations),
-	ONE("reserve_area", S_IRUSR, proc_pid_reserve_area),
-#endif
 #ifdef CONFIG_NUMA
 	REG("numa_maps",  S_IRUGO, proc_pid_numa_maps_operations),
 #endif
@@ -3440,7 +3375,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 	REG("mountinfo",  S_IRUGO, proc_mountinfo_operations),
 	REG("mountstats", S_IRUSR, proc_mountstats_operations),
 #ifdef CONFIG_PROCESS_RECLAIM
-	REG("reclaim", S_IWUGO, proc_reclaim_operations),
+	REG("reclaim", 0200, proc_reclaim_operations),
 #endif
 #ifdef CONFIG_PROC_PAGE_MONITOR
 	REG("clear_refs", S_IWUSR, proc_clear_refs_operations),
@@ -3472,6 +3407,9 @@ static const struct pid_entry tgid_base_stuff[] = {
 	ONE("oom_score",  S_IRUGO, proc_oom_score),
 	REG("oom_adj",    S_IRUSR, proc_oom_adj_operations),
 	REG("oom_score_adj", S_IRUSR, proc_oom_score_adj_operations),
+#ifdef CONFIG_HSWAP
+	ONE("show_hswap_factor", S_IRUSR, proc_hswap_factors),
+#endif
 #ifdef CONFIG_AUDITSYSCALL
 	REG("loginuid",   S_IWUSR|S_IRUGO, proc_loginuid_operations),
 	REG("sessionid",  S_IRUGO, proc_sessionid_operations),
@@ -3509,12 +3447,6 @@ static const struct pid_entry tgid_base_stuff[] = {
 #ifdef CONFIG_CPU_FREQ_TIMES
 	ONE("time_in_state", 0444, proc_time_in_state_show),
 #endif
-#ifdef OPLUS_FEATURE_HEALTHINFO
-// Liujie.Xie@TECH.Kernel.Sched, 2019/08/29, add for jank monitor
-#ifdef CONFIG_OPPO_JANK_INFO
-	REG("jank_info", S_IRUGO | S_IWUGO, proc_jank_trace_operations),
-#endif
-#endif /* OPLUS_FEATURE_HEALTHINFO */
 };
 
 static int proc_tgid_base_readdir(struct file *file, struct dir_context *ctx)
@@ -3889,6 +3821,9 @@ static const struct pid_entry tid_base_stuff[] = {
 	ONE("oom_score", S_IRUGO, proc_oom_score),
 	REG("oom_adj",   S_IRUSR, proc_oom_adj_operations),
 	REG("oom_score_adj", S_IRUSR, proc_oom_score_adj_operations),
+#ifdef CONFIG_HSWAP
+	ONE("show_hswap_factor", S_IRUSR, proc_hswap_factors),
+#endif
 #ifdef CONFIG_AUDITSYSCALL
 	REG("loginuid",  S_IWUSR|S_IRUGO, proc_loginuid_operations),
 	REG("sessionid",  S_IRUGO, proc_sessionid_operations),
@@ -3918,13 +3853,6 @@ static const struct pid_entry tid_base_stuff[] = {
 #endif
 #ifdef CONFIG_CPU_FREQ_TIMES
 	ONE("time_in_state", 0444, proc_time_in_state_show),
-#endif
-#ifdef OPLUS_FEATURE_UIFIRST
-// XieLiujie@BSP.KERNEL.PERFORMANCE, 2020/05/25, Add for UIFirst
-	REG("static_ux", S_IRUGO | S_IWUGO, proc_static_ux_operations),
-#endif /* OPLUS_FEATURE_UIFIRST */
-#ifdef CONFIG_CAMERA_OPT
-        REG("camera_opt", S_IRUGO | S_IWUGO, proc_camera_opt_operations),
 #endif
 };
 
