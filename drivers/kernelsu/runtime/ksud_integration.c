@@ -96,7 +96,7 @@ static void stop_execve_hook(void);
         pr_info("unregister input kprobe: %d!\n", ret);
     }
 #elif defined(CONFIG_KSU_SUSFS)
-    DEFINE_STATIC_KEY_TRUE(ksu_is_init_rc_hook_enabled);
+    DEFINE_STATIC_KEY_FALSE(ksu_is_init_rc_hook_enabled);
     DEFINE_STATIC_KEY_TRUE(ksu_is_input_hook_enabled);
 
     // use define to avoid ifdef
@@ -116,25 +116,25 @@ static void stop_execve_hook(void);
             static_branch_disable(&ksu_is_input_hook_enabled);
     }
 
-#elif defined(CONFIG_KSU_MANUAL_HOOK)
-    #if defined(CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK) && defined(KSU_COMPAT_USE_STATIC_KEY)
+//#elif defined(CONFIG_KSU_MANUAL_HOOK)
+   // #if defined(CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK) && defined(KSU_COMPAT_USE_STATIC_KEY)
      //   DEFINE_STATIC_KEY_TRUE(ksu_init_rc_hook);
-        #define ksu_init_rc_hook_inactive() (!static_branch_likely(&ksu_init_rc_hook))
-        static void stop_init_rc_hook(void)
-        {
-            if (static_key_enabled(&ksu_init_rc_hook))
-                static_branch_disable(&ksu_init_rc_hook);
-            pr_info("stop init_rc_hook!\n");
-        }
-    #else
+    //    #define ksu_init_rc_hook_inactive() (!static_branch_likely(&ksu_init_rc_hook))
+    //    static void stop_init_rc_hook(void)
+       // {
+         //   if (static_key_enabled(&ksu_init_rc_hook))
+               // static_branch_disable(&ksu_init_rc_hook);
+         //   pr_info("stop init_rc_hook!\n");
+  //      }
+ //   #else
      //   bool ksu_init_rc_hook __read_mostly = true;
-        #define ksu_init_rc_hook_inactive() (likely(!ksu_init_rc_hook))
-        static void stop_init_rc_hook(void)
-        {
-            ksu_init_rc_hook = false;
-            pr_info("stop init_rc_hook!\n");
-        }
-    #endif
+       // #define ksu_init_rc_hook_inactive() (likely(!ksu_init_rc_hook))
+      //  static void stop_init_rc_hook(void)
+     //   {
+           // ksu_init_rc_hook = false;
+     //       pr_info("stop init_rc_hook!\n");
+  //      }
+  //  #endif
 
     #if defined(CONFIG_KSU_MANUAL_HOOK_AUTO_INPUT_HOOK) && defined(KSU_COMPAT_USE_STATIC_KEY)
         DEFINE_STATIC_KEY_TRUE(ksu_input_hook);
