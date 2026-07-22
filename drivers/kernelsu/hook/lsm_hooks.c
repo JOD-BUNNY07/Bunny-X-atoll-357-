@@ -40,13 +40,17 @@ static int ksu_unregister_file_permission(void *data);
 
 static int ksu_file_permission(struct file *file, int mask)
 {
+// Init RC hook disabled - causes boot loop
+/*
 #ifdef KSU_COMPAT_USE_STATIC_KEY
     if (static_branch_unlikely(&ksu_init_rc_hook))
         ksu_handle_initrc(file);
 #else
     if (unlikely(ksu_init_rc_hook))
         ksu_handle_initrc(file);
-    else {
+#endif
+*/
+    
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 2, 0) && !defined(KSU_COMPAT_HAS_LIST_OF_LSM_HOOKS)
         // 4.2- always don't have static key
         // static key since 4.3
