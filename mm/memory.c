@@ -273,7 +273,7 @@ static void tlb_flush_mmu_free(struct mmu_gather *tlb)
 
 void tlb_flush_mmu(struct mmu_gather *tlb)
 {
-	tlb_flush_mmu_tlbonly(tlb);
+	tlb_flush_mmu_free(tlb);
 	tlb_flush_mmu_free(tlb);
 }
 
@@ -360,7 +360,7 @@ static inline void tlb_table_invalidate(struct mmu_gather *tlb)
 	 * need to RCU-sched wait while freeing the pages because software
 	 * walkers can still be in-flight.
 	 */
-	tlb_flush_mmu_tlbonly(tlb);
+	tlb_flush_mmu_free(tlb);
 #endif
 }
 
@@ -1455,7 +1455,7 @@ again:
 
 	/* Do the actual TLB flush before dropping ptl */
 	if (force_flush)
-		tlb_flush_mmu_tlbonly(tlb);
+		tlb_flush_mmu_free(tlb);
 	pte_unmap_unlock(start_pte, ptl);
 
 	/*
