@@ -118,7 +118,7 @@ static void stop_execve_hook(void);
 
 #elif defined(CONFIG_KSU_MANUAL_HOOK)
     #if defined(CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK) && defined(KSU_COMPAT_USE_STATIC_KEY)
-        DEFINE_STATIC_KEY_TRUE(ksu_init_rc_hook);
+     //   DEFINE_STATIC_KEY_TRUE(ksu_init_rc_hook);
         #define ksu_init_rc_hook_inactive() (!static_branch_likely(&ksu_init_rc_hook))
         static void stop_init_rc_hook(void)
         {
@@ -127,7 +127,7 @@ static void stop_execve_hook(void);
             pr_info("stop init_rc_hook!\n");
         }
     #else
-        bool ksu_init_rc_hook __read_mostly = true;
+     //   bool ksu_init_rc_hook __read_mostly = true;
         #define ksu_init_rc_hook_inactive() (likely(!ksu_init_rc_hook))
         static void stop_init_rc_hook(void)
         {
