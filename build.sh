@@ -162,7 +162,7 @@ echo -e "${CYAN}========================================${NC}"
 # ===================== ANYKERNEL3 =====================
 if [ ! -d "$ANYKERNEL_DIR" ]; then
     echo -e "${YELLOW}Cloning AnyKernel3...${NC}"
-    git clone --depth=1 --branch Bunny \
+    git clone --depth=1 --branch master \
     https://github.com/JOD-BUNNY07/AnyKernel3.git \
     "$ANYKERNEL_DIR"
 fi
