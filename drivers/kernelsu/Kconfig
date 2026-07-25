@@ -242,7 +242,7 @@ config KSU_SUSFS_SUS_MAP
         - It does NOT support hiding anon memory.
         - It does NOT hide any inline hooks or PLT hooks caused by the injected library itself.
         - It may not be able to evade detections by apps that implement a good injection detection.
-        - Effective only on zygote spawned umounted user app process >= 10000.
+        - Effective only on zygote spawned umounted user app process.
 
 endmenu
 
