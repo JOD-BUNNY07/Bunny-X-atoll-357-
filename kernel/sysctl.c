@@ -378,7 +378,7 @@ static int max_sched_tunable_scaling = SCHED_TUNABLESCALING_END-1;
 #ifdef OPLUS_FEATURE_UIFIRST
 // XieLiujie@BSP.KERNEL.PERFORMANCE, 2020/05/25, Add for UIFirst
 int sysctl_uifirst_enabled = 1;
-int sysctl_launcher_boost_enabled = 1;
+int sysctl_launcher_boost_enabled = 0;
 #endif /* OPLUS_FEATURE_UIFIRST */
 
 #ifdef OPLUS_FEATURE_UIFIRST
@@ -392,8 +392,8 @@ static int max_extfrag_threshold = 1000;
 #endif
 #ifdef OPLUS_FEATURE_UIFIRST
 // XuHaifeng@BSP.KERNEL.PERFORMANCE, 2020/06/23, Add for UIFirst(sldie boost)
-int sysctl_slide_boost_enabled = 1;
-int sysctl_boost_task_threshold = 45;
+int sysctl_slide_boost_enabled = 0;
+int sysctl_boost_task_threshold = 51;
 #ifdef CONFIG_CAMERA_OPT
 int sysctl_camera_opt_enabled = 0;
 #endif
