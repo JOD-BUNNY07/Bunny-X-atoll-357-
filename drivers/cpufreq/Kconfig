@@ -213,29 +213,6 @@ config CPU_BOOST
 
 	  If in doubt, say N.
 
-if CPU_BOOST
-
-config INPUT_BOOST_DURATION_MS
-	int "CPU input boost duration in milliseconds"
-	default 80
-	help
-	  Duration for which the CPU minimum frequency is boosted
-	  after an input event.
-
-config INPUT_BOOST_FREQ_LP
-	int "CPU input boost frequency for little cluster"
-	default 1401600
-	help
-	  Input boost frequency in kHz for CPUs 0-5.
-
-config INPUT_BOOST_FREQ_PERF
-	int "CPU input boost frequency for performance cluster"
-	default 1804800
-	help
-	  Input boost frequency in kHz for CPUs 6-7.
-
-endif
-
 config CPU_FREQ_GOV_SCHEDUTIL
 	bool "'schedutil' cpufreq policy governor"
 	depends on CPU_FREQ && SMP

@@ -36,7 +36,7 @@ static struct work_struct input_boost_work;
 
 static bool input_boost_enabled;
 
-static unsigned int input_boost_ms = CONFIG_INPUT_BOOST_DURATION_MS;
+static unsigned int input_boost_ms = 40;
 module_param(input_boost_ms, uint, 0644);
 
 static unsigned int sched_boost_on_input;
@@ -326,26 +326,7 @@ static int cpu_boost_init(void)
 	for_each_possible_cpu(cpu) {
 		s = &per_cpu(sync_info, cpu);
 		s->cpu = cpu;
-
-		/*
-		 * Atoll / SM7125 topology:
-		 * CPU0-5 = efficiency cluster
-		 * CPU6-7 = performance cluster
-		 */
-		if (cpu < 6)
-			s->input_boost_freq = CONFIG_INPUT_BOOST_FREQ_LP;
-		else
-			s->input_boost_freq = CONFIG_INPUT_BOOST_FREQ_PERF;
 	}
-
-	/*
-	 * Enable the input handler when at least one default
-	 * input boost frequency is configured.
-	 */
-	input_boost_enabled =
-		CONFIG_INPUT_BOOST_FREQ_LP ||
-		CONFIG_INPUT_BOOST_FREQ_PERF;
-
 	cpufreq_register_notifier(&boost_adjust_nb, CPUFREQ_POLICY_NOTIFIER);
 
 	ret = input_register_handler(&cpuboost_input_handler);
