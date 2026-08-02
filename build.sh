@@ -3,15 +3,14 @@ set -e
 
 WORKDIR=$(pwd)
 OUT_DIR="$WORKDIR/out"
-CLANG_DIR="$WORKDIR/toolchains/clang"
-GCC_DIR="$WORKDIR/toolchains/gcc"
+CLANG_REPO="https://gitlab.com/crdroidandroid/android_prebuilts_clang_host_linux-x86_clang-r547379.git"
+CLANG_DIR="$WORKDIR/toolchains/clang-r547379"
+BINUTILS_DIR="$WORKDIR/toolchains/llvm-binutils-stable"
 ANYKERNEL_DIR="$WORKDIR/AnyKernel3"
 
 DEVICE="RMX2061"
 DEFCONFIG="atoll_defconfig"
-KERNEL_NAME="BunnyBladeX"
-VARIENT="ResukiSU"
-BUILD_TYPE="Test"
+KERNEL_NAME="BunnyX-atoll-ResukiSU"
 VERSION="v1.0.0"
 
 DATE=$(date +%Y%m%d)
@@ -76,28 +75,20 @@ echo -e "${CYAN}========================================${NC}"
 
 mkdir -p "$WORKDIR/toolchains"
 
-# ===== CLANG (ORIGINAL - DO NOT CHANGE) =====
+# ===== CLANG r547379 =====
+
 if [ ! -d "$CLANG_DIR" ]; then
-    echo -e "${YELLOW}Downloading Clang...${NC}"
+    echo -e "${YELLOW}Downloading Clang r547379...${NC}"
     git clone --depth=1 \
-    https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
-    "$CLANG_DIR"
+"$CLANG_REPO" \
+"$CLANG_DIR"
+else
+    echo -e "${GREEN}Using cached Clang r547379${NC}"
 fi
 
-# Auto-detect latest clang (ORIGINAL)
-CLANG_BIN=$(find "$CLANG_DIR" -maxdepth 1 -type d -name "clang-r*" | sort -V | tail -1)
-
-if [ -z "$CLANG_BIN" ]; then
-    echo -e "${RED}No clang found${NC}"
-    ls -1 "$CLANG_DIR" | head -5
-    exit 1
-fi
-
-echo -e "${GREEN}Clang: $(basename $CLANG_BIN)${NC}"
-
+echo -e "${GREEN}Clang: r547379${NC}"
 # ===== LLVM BINUTILS (ORIGINAL) =====
-BINUTILS_DIR="$CLANG_DIR/llvm-binutils-stable"
-
+BINUTILS_DIR="$WORKDIR/toolchains/llvm-binutils-stable"
 if [ ! -d "$BINUTILS_DIR" ]; then
     echo -e "${YELLOW}Downloading llvm-binutils-stable...${NC}"
     git clone --depth=1 \
@@ -107,16 +98,8 @@ else
     echo -e "${GREEN}Using cached binutils${NC}"
 fi
 
-# ===== GCC (ORIGINAL) =====
-if [ ! -d "$GCC_DIR" ]; then
-    echo -e "${YELLOW}Downloading GCC...${NC}"
-    git clone --depth=1 \
-    https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-gnu-9.3 \
-    "$GCC_DIR"
-fi
-
 # ===== PATH SETUP (ORIGINAL) =====
-export PATH="$CLANG_BIN/bin:$BINUTILS_DIR/bin:$GCC_DIR/bin:$PATH"
+export PATH="$CLANG_DIR/bin:$BINUTILS_DIR/bin:$PATH"
 export ARCH=arm64
 export SUBARCH=arm64
 
@@ -136,7 +119,7 @@ echo -e "${CYAN}========================================${NC}"
 echo -e "${CYAN}    COMPILER INFORMATION${NC}"
 echo -e "${CYAN}========================================${NC}"
 
-CLANG_VER=$(clang --version | head -n1)
+CLANG_VER=$("$CLANG_DIR/bin/clang" --version | head -n1)
 echo -e "${GREEN}Clang: ${CLANG_VER}${NC}"
 
 GCC_VER=$(aarch64-linux-gnu-gcc --version | head -n1)
@@ -162,7 +145,7 @@ echo -e "${CYAN}========================================${NC}"
 # ===================== ANYKERNEL3 =====================
 if [ ! -d "$ANYKERNEL_DIR" ]; then
     echo -e "${YELLOW}Cloning AnyKernel3...${NC}"
-    git clone --depth=1 --branch Bunny \
+    git clone --depth=1 --branch master \
     https://github.com/JOD-BUNNY07/AnyKernel3.git \
     "$ANYKERNEL_DIR"
 fi
