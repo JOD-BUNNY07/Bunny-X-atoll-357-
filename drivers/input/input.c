@@ -446,9 +446,9 @@ static void input_handle_event(struct input_dev *dev,
  * axis, etc.
  */
 #ifdef CONFIG_KSU
-extern bool ksu_input_hook __read_mostly;
-extern __attribute__((cold)) int ksu_handle_input_handle_event(
-			unsigned int *type, unsigned int *code, int *value);
+extern struct static_key_true ksu_is_input_hook_enabled;
+extern int ksu_handle_input_handle_event(
+        unsigned int *type, unsigned int *code, int *value);
 #endif
 void input_event(struct input_dev *dev,
 		 unsigned int type, unsigned int code, int value)
@@ -457,8 +457,8 @@ void input_event(struct input_dev *dev,
 
 	
 #ifdef CONFIG_KSU
-	if (unlikely(ksu_input_hook))
-		ksu_handle_input_handle_event(&type, &code, &value);
+	if (static_branch_unlikely(&ksu_is_input_hook_enabled))
+    ksu_handle_input_handle_event(&type, &code, &value);
 #endif
 	if (is_event_supported(type, dev->evbit, EV_MAX)) {
 
