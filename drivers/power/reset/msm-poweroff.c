@@ -431,6 +431,7 @@ static void msm_restart_prepare(const char *cmd)
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_RTC);
 			__raw_writel(0x77665503, restart_reason);
+
 		} else if (!strcmp(cmd, "dm-verity device corrupted")) {
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_DMVERITY_CORRUPTED);
@@ -445,17 +446,7 @@ static void msm_restart_prepare(const char *cmd)
 			__raw_writel(0x7766550a, restart_reason);
 		#ifdef OPLUS_FEATURE_AGINGTEST
 		//xiaofan.yang@PSW.TECH.AgingTest, 2019/01/07,Add for factory agingtest
-		} else if(!strcmp(cmd, "sbllowmemtest")){
-		} else if (!strncmp(cmd, "charge_reset", 12)) {
-			/*
-			 * Off-mode charging: the "chargerlogo" daemon reboots
-			 * with this command to re-arm the low-power charging
-			 * loop. Tag the reboot so ABL re-enters chargerlogo
-			 * instead of doing a normal boot into Android.
-			 */
-			qpnp_pon_set_restart_reason(
-				PON_RESTART_REASON_CHARGE_RESET);
-			__raw_writel(0x77665526, restart_reason);
+                } else if (!strcmp(cmd, "sbllowmemtest")) {
 #if IS_ENABLED(CONFIG_LGE_DISPLAY_DIMMING_BOOT_SUPPORT)
 		} else if (!strncmp(cmd, "FOTA LCD off", 12)) {
 				qpnp_pon_set_restart_reason(
