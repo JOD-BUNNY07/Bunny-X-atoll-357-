@@ -1319,8 +1319,7 @@ out_copy_to_user:
 /* kthread for checking if /sdcard/Android is accessible via fsnoitfy */
 /* code is straightly borrowed from KernelSU's pkg_observer.c */
 #define SDCARD_ANDROID_PATH "/data/media/0/Android"
-bool susfs_is_sdcard_android
-_data_decrypted __read_mostly = false;
+bool susfs_is_sdcard_android_data_decrypted __read_mostly = false;
 DEFINE_STATIC_KEY_TRUE(susfs_is_sdcard_android_data_not_decrypted);
 struct watch_dir {
 	const char *path;
