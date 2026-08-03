@@ -167,10 +167,13 @@ int vfs_statx_fd(unsigned int fd, struct kstat *stat,
 	return error;
 }
 EXPORT_SYMBOL(vfs_statx_fd);
-#ifdef CONFIG_KSU
-extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);
+#ifdef CONFIG_KSU_SUSFS
+extern struct static_key_true ksu_su_compat_enabled;
+extern bool __ksu_is_allow_uid_for_current(uid_t uid);
+extern int ksu_handle_stat(int *dfd,
+        const char __user **filename_user,
+        int *flags);
 #endif
-
 
 /**
  * vfs_statx - Get basic and extra attributes by filename
@@ -193,6 +196,18 @@ int vfs_statx(int dfd, const char __user *filename, int flags,
 	struct path path;
 	int error = -EINVAL;
 	unsigned int lookup_flags = LOOKUP_FOLLOW | LOOKUP_AUTOMOUNT;
+
+#ifdef CONFIG_KSU_SUSFS
+    if (likely(susfs_is_current_proc_umounted()))
+        goto orig_flow;
+
+    if (static_branch_likely(&ksu_su_compat_enabled)) {
+        if (unlikely(__ksu_is_allow_uid_for_current(current_uid().val)))
+            ksu_handle_stat(&dfd, &filename, &flags);
+    }
+
+orig_flow:
+#endif
 
 	if ((flags & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
 		       AT_EMPTY_PATH | KSTAT_QUERY_FLAGS)) != 0)
