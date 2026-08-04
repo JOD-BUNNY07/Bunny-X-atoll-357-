@@ -100,11 +100,11 @@ CONFIG_PREEMPT=y
 #ifdef OPLUS_FEATURE_HEALTHINFO
 #wenbin.liu@PSW.BSP.MM, 2018/06/14 Delete for improve performance
 # CONFIG_HZ_100=y
-# CONFIG_HZ_500 is not set
+# CONFIG_HZ_300 is not set
 # CONFIG_HZ_1000 is not set
 # CONFIG_HZ_250 is not set
-CONFIG_HZ_300=y
-CONFIG_HZ=300
+CONFIG_HZ_500=y
+CONFIG_HZ=500
 #endif /* OPLUS_FEATURE_HEALTHINFO */
 CONFIG_MEMORY_HOTPLUG=y
 CONFIG_MEMORY_HOTPLUG_DEFAULT_ONLINE=y
@@ -1190,5 +1190,5 @@ CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
 # Clang Link Time Optimization (LTO)
 # ==========================================================
 CONFIG_LTO_CLANG=y
-CONFIG_THINLTO=y
+# CONFIG_CFI_CLANG is not set
 # ==========================================================
