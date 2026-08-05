@@ -219,16 +219,6 @@ uint __read_mostly sched_burst_penalty_scale    = 1280;
 uint __read_mostly sched_burst_cache_lifetime   = 60000000;
 #endif
 
-#ifdef CONFIG_SCHED_BORE
-uint __read_mostly sched_burst_exclude_kthreads = 1;
-uint __read_mostly sched_burst_smoothness_long  = 1;
-uint __read_mostly sched_burst_smoothness_short = 1;
-uint __read_mostly sched_burst_fork_atavistic   = 0;
-uint __read_mostly sched_burst_penalty_offset   = 22;
-uint __read_mostly sched_burst_penalty_scale    = 1280;
-uint __read_mostly sched_burst_cache_lifetime   = 60000000;
-#endif
-
 /*
  * The margin used when comparing utilization with CPU capacity:
  * util * margin < capacity * 1024
