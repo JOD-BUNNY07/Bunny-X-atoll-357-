@@ -8,10 +8,10 @@
 #include <linux/devfreq.h>
 
 enum df_device {
-	DEVFREQ_CPU_LLCC_DDR_BW,
-	DEVFREQ_MAX
+        DEVFREQ_CPU_LLCC_DDR_BW,
+        DEVFREQ_CPU_CPU_LLC_BW,
+        DEVFREQ_MAX,
 };
-
 #ifdef CONFIG_DEVFREQ_BOOST
 void devfreq_boost_kick(enum df_device device);
 void devfreq_boost_kick_max(enum df_device device, unsigned int duration_ms);

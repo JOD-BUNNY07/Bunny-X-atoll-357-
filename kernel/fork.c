@@ -95,6 +95,7 @@
 #include <linux/cpufreq_times.h>
 #include <linux/scs.h>
 #include <linux/devfreq_boost.h>
+#include <linux/cpu_input_boost.h>
 #include <linux/simple_lmk.h>
 
 #include <linux/oom_score_notifier.h>
@@ -110,6 +111,8 @@
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/task.h>
+
+extern int kp_active_mode(void);
 #ifdef OPLUS_FEATURE_UIFIRST
 // XieLiujie@BSP.KERNEL.PERFORMANCE, 2020/05/25, Add for UIFirst
 #include <linux/uifirst/uifirst_sched_fork.h>
@@ -2303,9 +2306,10 @@ long _do_fork(unsigned long clone_flags,
 	long nr;
 
 	/* Boost DDR bus to the max for 50 ms when userspace launches an app */
-	if (task_is_zygote(current))
-		devfreq_boost_kick_max(DEVFREQ_CPU_LLCC_DDR_BW, 50);
-
+if (task_is_zygote(current) && kp_active_mode() >= 2) {
+    devfreq_boost_kick_max(DEVFREQ_CPU_LLCC_DDR_BW, 50);
+    devfreq_boost_kick_max(DEVFREQ_CPU_CPU_LLCC_BW, 50);
+}
 	/*
 	 * Determine whether and which event to report to ptracer.  When
 	 * called from kernel_thread or CLONE_UNTRACED is explicitly
