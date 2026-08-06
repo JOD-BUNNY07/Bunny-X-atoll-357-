@@ -95,7 +95,6 @@
 #include <linux/cpufreq_times.h>
 #include <linux/scs.h>
 #include <linux/devfreq_boost.h>
-#include <linux/cpu_input_boost.h>
 #include <linux/simple_lmk.h>
 
 #include <linux/oom_score_notifier.h>
