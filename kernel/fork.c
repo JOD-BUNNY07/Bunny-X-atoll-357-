@@ -111,7 +111,6 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/task.h>
 
-extern int kp_active_mode(void);
 #ifdef OPLUS_FEATURE_UIFIRST
 // XieLiujie@BSP.KERNEL.PERFORMANCE, 2020/05/25, Add for UIFirst
 #include <linux/uifirst/uifirst_sched_fork.h>
@@ -2305,7 +2304,7 @@ long _do_fork(unsigned long clone_flags,
 	long nr;
 
 	/* Boost DDR bus to the max for 50 ms when userspace launches an app */
-if (task_is_zygote(current) && kp_active_mode() >= 2) {
+if (task_is_zygote(current)) {
     devfreq_boost_kick_max(DEVFREQ_CPU_LLCC_DDR_BW, 50);
     devfreq_boost_kick_max(DEVFREQ_CPU_CPU_LLC_BW, 50);
 }
