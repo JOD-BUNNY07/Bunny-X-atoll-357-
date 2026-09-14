@@ -64,12 +64,12 @@ KSU_SRC := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 # ReSukiSU is integrated directly into this kernel tree.
 # Do not require drivers/kernelsu to be a standalone git submodule.
 
-KSU_LOCAL_VERSION := 4500
+KSU_LOCAL_VERSION := 4600
 KSU_VERSION := $(shell expr 30000 + $(KSU_LOCAL_VERSION) + 700)
 
-KSU_TAG_NAME := v4.1.0
+KSU_TAG_NAME := v4.2.0-rc1
 KSU_COMMIT_SHA := integrated
-KSU_BRANCH_NAME := ReSukiSU-clean 
+KSU_BRANCH_NAME := Resukisu-Sony-LMK-Port
 
 # call subst to process placeholders
 KSU_VERSION_FULL := $(subst ",,$(CONFIG_KSU_FULL_NAME_FORMAT))
