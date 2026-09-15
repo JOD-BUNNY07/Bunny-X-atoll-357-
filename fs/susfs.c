@@ -486,8 +486,9 @@ out_copy_to_user:
 	SUSFS_LOGI("CMD_SUSFS_UPDATE_SUS_KSTAT -> ret: %d\n", info.err);
 }
 
-void susfs_generic_fillattr_spoofer(struct inode *inode, struct kstat *stat)
+void susfs_generic_fillattr_spoofer(struct inode *inode, struct kstat *stat, u32 result_mask)
 {
+        (void)result_mask;
 	struct st_susfs_sus_kstat_hlist *entry = NULL;
 	struct fuse_inode *fi = NULL;
 	unsigned long target_ino = 0;
