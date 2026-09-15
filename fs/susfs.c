@@ -601,6 +601,84 @@ out_spoof_kstat:
 	}
 	rcu_read_unlock();
 }
+
+
+__attribute__((hot)) bool susfs_is_inode_sus_kstat(struct inode *inode, bool *out_is_fuse) {
+	struct fuse_inode *fi = NULL;
+
+	if (!inode)
+		return false;
+	if (inode->i_sb->s_magic == FUSE_SUPER_MAGIC) {
+		fi = get_fuse_inode(inode);
+		if (!fi) {
+			SUSFS_LOGE("fi is NULL\n");
+			return false;
+		}
+		if (test_bit(AS_FLAGS_SUS_KSTAT, &fi->inode.i_state)) {
+			*out_is_fuse = true;
+			return true;
+		}
+		return false;
+	}
+	if (test_bit(AS_FLAGS_SUS_KSTAT, &inode->i_state))
+		return true;
+	return false;
+}
+
+int susfs_sus_kstat_spoof_vfs_statfs(struct inode *inode, struct kstatfs *buf, bool *is_fuse) {
+	struct st_susfs_sus_kstat_hlist *entry = NULL;
+	struct inode *target_inode = inode;
+
+	if (*is_fuse)
+		target_inode = &get_fuse_inode(inode)->inode;
+
+	rcu_read_lock();
+	hash_for_each_possible_rcu(SUS_KSTAT_HLIST, entry, node, target_inode->i_ino) {
+		if (entry->target_dev == inode->i_sb->s_dev)
+		{
+			SUSFS_LOGI("spoofing kstat for vfs_statfs, target_ino: %lu, target_dev: %u\n", target_inode->i_ino, target_inode->i_sb->s_dev);
+			memcpy(buf, &entry->spoofed_kstatfs, sizeof(struct kstatfs));
+			rcu_read_unlock();
+			return 0;
+		}
+	}
+	rcu_read_unlock();
+	return -EINVAL;
+}
+
+void susfs_sus_kstat_spoof_inotify_fdinfo(unsigned long *out_target_ino, dev_t *out_target_dev) {
+	struct st_susfs_sus_kstat_hlist *entry = NULL;
+
+	rcu_read_lock();
+	hash_for_each_possible_rcu(SUS_KSTAT_HLIST, entry, node, *out_target_ino) {
+		if (entry->target_dev == *out_target_dev)
+		{
+			SUSFS_LOGI("spoofing kstat for inotify_fdinfo, target_ino: %lu, target_dev: %u\n", *out_target_ino, *out_target_dev);
+			*out_target_ino = entry->info.spoofed_ino;
+			*out_target_dev = entry->info.spoofed_dev;
+			rcu_read_unlock();
+			return;
+		}
+	}
+	rcu_read_unlock();
+}
+
+void susfs_sus_kstat_spoof_proc_fd_seq_show(int *out_target_mnt_id, unsigned long *out_target_ino, dev_t target_dev) {
+	struct st_susfs_sus_kstat_hlist *entry = NULL;
+
+	rcu_read_lock();
+	hash_for_each_possible_rcu(SUS_KSTAT_HLIST, entry, node, *out_target_ino) {
+		if (entry->target_dev == target_dev)
+		{
+			SUSFS_LOGI("spoofing kstat for proc_fd_seq_show, target_ino: %lu, target_dev: %u\n", *out_target_ino, target_dev);
+			*out_target_mnt_id = entry->spoofed_mnt_id;
+			*out_target_ino = entry->info.spoofed_ino;
+			rcu_read_unlock();
+			return;
+		}
+	}
+	rcu_read_unlock();
+}
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 /* try_umount */
 #ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
