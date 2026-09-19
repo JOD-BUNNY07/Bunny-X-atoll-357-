@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - astra
+      - astra-ksu
       - mcqueen-ksu
       - mcqueen
   pull_request:
