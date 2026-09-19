@@ -43,7 +43,7 @@ fi
 KERNEL_NAME="Astra-thenoah77-"
 DEVICE="RMX2061"
 VARIANT="perf"
-BUILD_TYPE="nonKSU"
+BUILD_TYPE="KSU"
 VERSION_NUMBER="v1.0.1"
 
 DATE=$(date +%Y%m%d)
