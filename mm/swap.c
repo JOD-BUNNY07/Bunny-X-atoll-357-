@@ -1010,18 +1010,10 @@ EXPORT_SYMBOL(pagevec_lookup_range_nr_tag);
  */
 void __init swap_setup(void)
 {
-	unsigned long megs = totalram_pages >> (20 - PAGE_SHIFT);
-
-	/* Use a smaller cluster for small-memory machines */
-	if (megs < 16)
-		page_cluster = 2;
-	else
-		page_cluster = 3;
 	/*
-	 * Right now other parts of the system means that we
-	 * _really_ don't want to cluster much more
+	 * Swap lives on zram on this device: there is no seek cost, so
+	 * swap readahead only wastes memory bandwidth and CPU decompressing
+	 * pages that are never used. Disable it regardless of RAM size.
 	 */
-#if defined(OPLUS_FEATURE_ZRAM_OPT) && defined(CONFIG_OPLUS_ZRAM_OPT)
 	page_cluster = 0;
-#endif /*OPLUS_FEATURE_ZRAM_OPT*/
 }
