@@ -173,22 +173,21 @@ int ksu_handle_get_managers_cmd(struct ksu_get_managers_cmd __user *arg, struct 
         return -ENOMEM;
 
     rcu_read_lock();
-    list_for_each_entry_rcu(pos, &ksu_manager_appid_list, list) {
+    list_for_each_entry_rcu (pos, &ksu_manager_appid_list, list) {
         if (count < max_allowed) {
             entries[count].uid = pos->appid;
             entries[count].signature_index = pos->signature_index;
         }
+
         count++;
     }
     rcu_read_unlock();
 
     cmd->total_count = count;
+
     copy_count = min_t(int, count, max_allowed);
 
-    if (copy_count &&
-        copy_to_user((char __user *)arg + sizeof(*cmd),
-                     entries,
-                     copy_count * sizeof(*entries))) {
+    if (copy_count && copy_to_user((char __user *)arg + sizeof(*cmd), entries, copy_count * sizeof(*entries))) {
         kfree(entries);
         return -EFAULT;
     }
