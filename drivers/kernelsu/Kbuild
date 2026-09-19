@@ -1,4 +1,5 @@
 kernelsu-objs := core/init.o
+kernelsu-objs += feature/module_load_filter.o
 kernelsu-objs += policy/allowlist.o
 kernelsu-objs += policy/app_profile.o
 kernelsu-objs += policy/feature.o
