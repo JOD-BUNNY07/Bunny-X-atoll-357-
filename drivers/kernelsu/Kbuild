@@ -67,7 +67,7 @@ KSU_SRC := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 KSU_LOCAL_VERSION := 4600
 KSU_VERSION := $(shell expr 30000 + $(KSU_LOCAL_VERSION) + 700)
 
-KSU_TAG_NAME := v4.2.0-rc1
+KSU_TAG_NAME := v4.2.0-rc2
 KSU_COMMIT_SHA := integrated
 KSU_BRANCH_NAME := susfs-2.3.0-test
 
