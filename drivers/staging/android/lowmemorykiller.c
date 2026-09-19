@@ -910,7 +910,6 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		lowmem_print(3, "reclaimed cnt = %d, reclaim cont = %d, min oom score= %hd\n",
 				reclaimed_cnt, reclaimable_cnt, min_score_adj);
 #endif
-		++lmk_kill_cnt;
 		rcu_read_unlock();
 		/* give the system time to free up the memory */
 		msleep_interruptible(20);

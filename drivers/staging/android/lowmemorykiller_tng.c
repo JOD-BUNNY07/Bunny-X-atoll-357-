@@ -75,21 +75,34 @@ static inline long zone_threshold_check(struct zone *zone, int zone_type,
 					int threshold)
 {
 	int order;
+#if defined(OPLUS_FEATURE_MULTI_FREEAREA) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+	int flc;
+#endif
 	unsigned long flags;
 	unsigned long tot = 0;
 
 	spin_lock_irqsave(&zone->lock, flags);
+#if defined(OPLUS_FEATURE_MULTI_FREEAREA) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+	for (flc = 0; flc < FREE_AREA_COUNTS; flc++) {
+#endif
 	for (order = 0; order < MAX_ORDER; ++order) {
 		struct free_area *area;
 		struct list_head *curr;
 
+#if defined(OPLUS_FEATURE_MULTI_FREEAREA) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+		area = &zone->free_area[flc][order];
+#else
 		area = &zone->free_area[order];
+#endif
 		list_for_each(curr, &area->free_list[zone_type]) {
 			tot += 1 << order;
 			if (tot >= threshold)
 				goto out;
 		}
 	}
+#if defined(OPLUS_FEATURE_MULTI_FREEAREA) && defined(CONFIG_PHYSICAL_ANTI_FRAGMENTATION)
+	}
+#endif
 out:
 	spin_unlock_irqrestore(&zone->lock, flags);
 	return tot;
