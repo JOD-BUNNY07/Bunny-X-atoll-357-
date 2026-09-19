@@ -329,7 +329,14 @@ compound_page_dtor * const compound_page_dtors[] = {
  */
 int min_free_kbytes = 1024;
 int user_min_free_kbytes = -1;
-int watermark_scale_factor = 10;
+/*
+ * 200 (2% of each zone) instead of the upstream 10: on an 8GB phone this
+ * keeps ~350MB free rather than ~95MB, so kswapd starts early enough that
+ * allocation bursts (app launches, the post-boot start storm) do not fall
+ * into direct reclaim. The vendor post-boot script sets the same value,
+ * but that runs a minute after boot; this covers the window before it.
+ */
+int watermark_scale_factor = 200;
 
 /*
  * Extra memory for the system to try freeing. Used to temporarily
