@@ -109,8 +109,25 @@ static inline void KGSL_STATS_ADD(uint64_t size, atomic_long_t *stat,
 #define KGSL_MAX_SYNCPOINTS 32
 #define KGSL_MAX_SPARSE 1000
 
+struct gpu_work_period {
+	struct kref refcount;
+	struct list_head list;
+	struct list_head put_node;
+	uid_t uid;
+	u64 active;
+	unsigned long flags;
+	atomic_t active_cmds;
+};
+
+#define KGSL_WORK_PERIOD 0
+#define KGSL_WORK_PERIOD_MS 900
+
 struct kgsl_device;
 struct kgsl_context;
+void kgsl_work_period_update(struct kgsl_device *device,
+		struct gpu_work_period *period, u64 active);
+void kgsl_work_period_start(struct kgsl_device *device,
+		struct gpu_work_period *period);
 
 /**
  * struct kgsl_driver - main container for global KGSL things
@@ -132,6 +149,8 @@ struct kgsl_context;
  * @mem_workqueue: Pointer to a workqueue for deferring memory entries
  */
 struct kgsl_driver {
+	struct list_head wp_list;
+	spinlock_t wp_list_lock;
 	struct cdev cdev;
 	dev_t major;
 	struct class *class;

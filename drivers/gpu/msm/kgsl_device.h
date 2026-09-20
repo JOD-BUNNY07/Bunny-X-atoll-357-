@@ -243,6 +243,12 @@ struct kgsl_sparseobj_node {
 };
 
 struct kgsl_device {
+	struct timer_list work_period_timer;
+	spinlock_t work_period_lock;
+	struct work_struct work_period_ws;
+	bool work_period_stopping;
+	bool work_period_running;
+	u64 work_period_begin;
 	struct device *dev;
 	const char *name;
 	unsigned int ver_major;
@@ -468,6 +474,7 @@ struct kgsl_context {
  * @ctxt_count_lock: Spinlock to protect ctxt_count
  */
 struct kgsl_process_private {
+	struct gpu_work_period *period;
 	unsigned long priv;
 	struct pid *pid;
 	char comm[TASK_COMM_LEN];

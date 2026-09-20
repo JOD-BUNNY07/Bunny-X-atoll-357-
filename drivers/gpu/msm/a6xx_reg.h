@@ -119,6 +119,9 @@
 #define A6XX_CP_IB2_BASE                 0x92B
 #define A6XX_CP_IB2_BASE_HI              0x92C
 #define A6XX_CP_IB2_REM_SIZE             0x92D
+#define A6XX_CP_ALWAYS_ON_CONTEXT_LO     0x982
+#define A6XX_CP_ALWAYS_ON_CONTEXT_HI     0x983
+
 #define A6XX_CP_ALWAYS_ON_COUNTER_LO     0x980
 #define A6XX_CP_ALWAYS_ON_COUNTER_HI     0x981
 #define A6XX_CP_AHB_CNTL                 0x98D

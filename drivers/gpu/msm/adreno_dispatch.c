@@ -2315,7 +2315,7 @@ static void _print_recovery(struct kgsl_device *device,
 }
 
 static void cmdobj_profile_ticks(struct adreno_device *adreno_dev,
-	struct kgsl_drawobj_cmd *cmdobj, uint64_t *start, uint64_t *retire)
+	struct kgsl_drawobj_cmd *cmdobj, uint64_t *start, uint64_t *retire, uint64_t *active)
 {
 	void *ptr = adreno_dev->profile_buffer.hostptr;
 	struct adreno_drawobj_profile_entry *entry;
@@ -2327,6 +2327,12 @@ static void cmdobj_profile_ticks(struct adreno_device *adreno_dev,
 	rmb();
 	*start = entry->started;
 	*retire = entry->retired;
+	/* Context ticks stop during preemption; global ticks do not. */
+	*active = adreno_is_a6xx(adreno_dev) ?
+		entry->ctx_end - entry->ctx_start : 0;
+	/* Discard reset/stale counter pairs rather than charging bogus work. */
+	if (*retire < *start || *active > *retire - *start)
+		*active = 0;
 }
 
 static void retire_cmdobj(struct adreno_device *adreno_dev,
@@ -2335,7 +2341,7 @@ static void retire_cmdobj(struct adreno_device *adreno_dev,
 	struct adreno_dispatcher *dispatcher = &adreno_dev->dispatcher;
 	struct kgsl_drawobj *drawobj = DRAWOBJ(cmdobj);
 	struct adreno_context *drawctxt = ADRENO_CONTEXT(drawobj->context);
-	uint64_t start = 0, end = 0;
+	uint64_t start = 0, end = 0, active = 0;
 
 	if (cmdobj->fault_recovery != 0) {
 		set_bit(ADRENO_CONTEXT_FAULT, &drawobj->context->priv);
@@ -2343,7 +2349,13 @@ static void retire_cmdobj(struct adreno_device *adreno_dev,
 	}
 
 	if (test_bit(CMDOBJ_PROFILE, &cmdobj->priv))
-		cmdobj_profile_ticks(adreno_dev, cmdobj, &start, &end);
+		cmdobj_profile_ticks(adreno_dev, cmdobj, &start, &end, &active);
+
+	/* Replayed/faulted and protected work is not valid accounting data. */
+	if (!cmdobj->fault_recovery &&
+	    !(drawobj->context->flags & KGSL_CONTEXT_SECURE))
+		kgsl_work_period_update(KGSL_DEVICE(adreno_dev),
+			drawobj->context->proc_priv->period, active);
 
 	/*
 	 * For A3xx we still get the rptr from the CP_RB_RPTR instead of
