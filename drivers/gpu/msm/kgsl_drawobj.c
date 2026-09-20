@@ -294,6 +294,10 @@ static void drawobj_destroy_cmd(struct kgsl_drawobj *drawobj)
 	if (cmdobj->base.flags & KGSL_DRAWOBJ_PROFILING)
 		kgsl_mem_entry_put(cmdobj->profiling_buf_entry);
 
+	if ((drawobj->type & CMDOBJ_TYPE) &&
+	    !(drawobj->context->flags & KGSL_CONTEXT_SECURE))
+		atomic_dec(&drawobj->context->proc_priv->period->active_cmds);
+
 	/* Destroy the cmdlist we created */
 	memobj_list_free(&cmdobj->cmdlist);
 
@@ -740,6 +744,9 @@ struct kgsl_drawobj_cmd *kgsl_drawobj_cmd_create(struct kgsl_device *device,
 
 		INIT_LIST_HEAD(&cmdobj->cmdlist);
 		INIT_LIST_HEAD(&cmdobj->memlist);
+		if ((cmdobj->base.type & CMDOBJ_TYPE) &&
+		    !(context->flags & KGSL_CONTEXT_SECURE))
+			kgsl_work_period_start(device, context->proc_priv->period);
 	}
 
 	return cmdobj;
