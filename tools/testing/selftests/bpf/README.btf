@@ -16,11 +16,19 @@ Build prerequisites (Linux host):
 - The upstream Linux resolve_btfids host executable. Some distributions
   ship it under /usr/lib/linux-kbuild-*/tools/bpf/resolve_btfids/.
   Alternatively build tools/bpf/resolve_btfids in a Linux v5.10+ source tree.
-  Supply its absolute path using make RESOLVE_BTFIDS=/path/to/resolve_btfids.
+  The Makefile checks PATH, /usr/lib/linux-kbuild-*, and /usr/src/linux-headers-*.
+  For another location, supply make RESOLVE_BTFIDS=/path/to/resolve_btfids,
+  or export RESOLVE_BTFIDS=/path/to/resolve_btfids before your build script.
   It must be a host binary, not an Android executable.
 
 This kernel's bundled tools/lib/bpf predates the resolver's dependencies;
 use the upstream tool instead of assuming an unbuilt in-tree binary exists.
+If prepare-btf reports a missing resolver, inspect the build host first:
+  cat /etc/os-release
+  find /usr/lib /usr/src -type f -name resolve_btfids -executable 2>/dev/null
+Package names vary by distribution. Installing bpftool alone does not supply
+resolve_btfids. Do not disable BTF to bypass this check: that restores the
+demonstrated CPU-accounting failure.
 The prepare step checks both tools before compiling kernel objects. To
 check manually with the same environment:
   PAHOLE=pahole RESOLVE_BTFIDS=/path/to/resolve_btfids sh scripts/btf-tools.sh

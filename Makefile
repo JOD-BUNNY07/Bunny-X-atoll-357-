@@ -409,8 +409,11 @@ READELF		= $(CROSS_COMPILE)readelf
 STRIP		= $(CROSS_COMPILE)strip
 endif
 PAHOLE		= pahole
-# Use the host's upstream resolver; this tree does not vendor modern libbpf.
-RESOLVE_BTFIDS	?= resolve_btfids
+# Distribution kbuild/header packages often install this outside PATH.
+# An explicit environment or make-command-line override still takes priority.
+RESOLVE_BTFIDS	?= $(or $(shell command -v resolve_btfids 2>/dev/null),$(firstword \
+	$(wildcard /usr/lib/linux-kbuild-*/tools/bpf/resolve_btfids/resolve_btfids \
+	/usr/src/linux-headers-*/tools/bpf/resolve_btfids/resolve_btfids)),resolve_btfids)
 AWK		= awk
 GENKSYMS	= scripts/genksyms/genksyms
 INSTALLKERNEL  := installkernel
