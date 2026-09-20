@@ -6,7 +6,13 @@ device baseline failed in libbpf before program loading:
   kernel BTF is missing at '/sys/kernel/btf/vmlinux'
   Error loading vmlinux BTF: -3
 
-Enable full DWARF4 debug info and BTF in atoll_defconfig. This tree already
+The default atoll configuration leaves BTF disabled because the build host
+cannot install its additional tools. CPU time-in-state accounting therefore
+remains unresolved. JMP32, GPU work-period reporting and the CPU touch-boost
+fix do not require kernel BTF and remain enabled.
+
+On a host with the prerequisites below, opt in with CONFIG_DEBUG_INFO=y,
+CONFIG_DEBUG_INFO_DWARF4=y and CONFIG_DEBUG_INFO_BTF=y. This tree already
 exports BTF through kernel/bpf/sysfs_btf.c, but its in-kernel parser used
 obsolete symbol names. Both now use the linker-defined __start_BTF and
 __stop_BTF. Type/name limits match Linux v5.10's vmlinux-sized BTF limits.
@@ -27,8 +33,8 @@ If prepare-btf reports a missing resolver, inspect the build host first:
   cat /etc/os-release
   find /usr/lib /usr/src -type f -name resolve_btfids -executable 2>/dev/null
 Package names vary by distribution. Installing bpftool alone does not supply
-resolve_btfids. Do not disable BTF to bypass this check: that restores the
-demonstrated CPU-accounting failure.
+resolve_btfids. A build with BTF disabled avoids this host dependency but
+does not fix the demonstrated CPU-accounting failure.
 The prepare step checks both tools before compiling kernel objects. To
 check manually with the same environment:
   PAHOLE=pahole RESOLVE_BTFIDS=/path/to/resolve_btfids sh scripts/btf-tools.sh
