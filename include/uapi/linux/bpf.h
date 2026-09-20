@@ -19,7 +19,12 @@
 
 /* ld/ldx fields */
 #define BPF_DW		0x18	/* double word (64-bit) */
-#define BPF_XADD	0xc0	/* exclusive add */
+#define BPF_ATOMIC	0xc0	/* atomic memory ops - op type in immediate */
+#define BPF_XADD	0xc0	/* exclusive add - legacy name */
+
+#define BPF_FETCH	0x01	/* return old value in source register */
+#define BPF_XCHG	(0xe0 | BPF_FETCH)
+#define BPF_CMPXCHG	(0xf0 | BPF_FETCH)
 
 /* alu/jmp fields */
 #define BPF_MOV		0xb0	/* mov reg to reg */
