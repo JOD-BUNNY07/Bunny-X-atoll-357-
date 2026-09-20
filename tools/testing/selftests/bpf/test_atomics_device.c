@@ -136,7 +136,12 @@ static unsigned run_jumps(void)
 				ops[op],wide?64:32,reg,strerror(errno),logbuf);
 			exit(1);
 		}
-		uint32_t packet[16] = {htonl(values[a]), htonl(values[b])};
+		/* Socket-filter TEST_RUN strips the Ethernet header before LD_ABS. */
+		unsigned char packet[64] = {0};
+		const uint32_t operands[] = {htonl(values[a]), htonl(values[b])};
+		packet[12] = 0x88;
+		packet[13] = 0xb5; /* Experimental EtherType, no IP parsing. */
+		memcpy(packet + 14, operands, sizeof(operands));
 		union bpf_attr attr = {0};
 		attr.test.prog_fd = fd;
 		attr.test.data_in = (uintptr_t)packet;
