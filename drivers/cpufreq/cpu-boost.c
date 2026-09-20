@@ -42,7 +42,8 @@ module_param(input_boost_ms, uint, 0644);
 static unsigned int sched_boost_on_input;
 module_param(sched_boost_on_input, uint, 0644);
 
-static bool sched_boost_active;
+/* Keep the acquired type: the module parameter can change before expiry. */
+static unsigned int sched_boost_active;
 
 static struct delayed_work input_boost_rem;
 static u64 last_input_time;
@@ -180,22 +181,23 @@ static void do_input_boost_rem(struct work_struct *work)
 	update_policy_online();
 
 	if (sched_boost_active) {
-		ret = sched_set_boost(0);
+		ret = sched_set_boost(-(int)sched_boost_active);
 		if (ret)
 			pr_err("cpu-boost: sched boost disable failed\n");
-		sched_boost_active = false;
+		sched_boost_active = 0;
 	}
 }
 
 static void do_input_boost(struct work_struct *work)
 {
 	unsigned int i, ret;
+	unsigned int boost = READ_ONCE(sched_boost_on_input);
 	struct cpu_sync *i_sync_info;
 
 	cancel_delayed_work_sync(&input_boost_rem);
 	if (sched_boost_active) {
-		sched_set_boost(0);
-		sched_boost_active = false;
+		sched_set_boost(-(int)sched_boost_active);
+		sched_boost_active = 0;
 	}
 
 	/* Set the input_boost_min for all CPUs in the system */
@@ -209,12 +211,12 @@ static void do_input_boost(struct work_struct *work)
 	update_policy_online();
 
 	/* Enable scheduler boost to migrate tasks to big cluster */
-	if (sched_boost_on_input > 0) {
-		ret = sched_set_boost(sched_boost_on_input);
+	if (boost > 0 && boost <= INT_MAX) {
+		ret = sched_set_boost(boost);
 		if (ret)
 			pr_err("cpu-boost: sched boost enable failed\n");
 		else
-			sched_boost_active = true;
+			sched_boost_active = boost;
 	}
 
 	queue_delayed_work(cpu_boost_wq, &input_boost_rem,
