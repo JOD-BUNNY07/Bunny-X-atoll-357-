@@ -409,7 +409,8 @@ READELF		= $(CROSS_COMPILE)readelf
 STRIP		= $(CROSS_COMPILE)strip
 endif
 PAHOLE		= pahole
-RESOLVE_BTFIDS	= $(objtree)/tools/bpf/resolve_btfids/resolve_btfids
+# Use the host's upstream resolver; this tree does not vendor modern libbpf.
+RESOLVE_BTFIDS	?= resolve_btfids
 AWK		= awk
 GENKSYMS	= scripts/genksyms/genksyms
 INSTALLKERNEL  := installkernel
@@ -1327,6 +1328,13 @@ prepare0: archprepare gcc-plugins
 
 # All the preparing..
 prepare: prepare0 prepare-objtool
+
+ifdef CONFIG_DEBUG_INFO_BTF
+PHONY += prepare-btf
+prepare: prepare-btf
+prepare-btf:
+	$(Q)$(CONFIG_SHELL) $(srctree)/scripts/btf-tools.sh >/dev/null
+endif
 
 # Support for using generic headers in asm-generic
 PHONY += asm-generic uapi-asm-generic
