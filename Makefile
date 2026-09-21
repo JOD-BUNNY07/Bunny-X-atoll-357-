@@ -408,6 +408,14 @@ OBJDUMP		= $(CROSS_COMPILE)objdump
 READELF		= $(CROSS_COMPILE)readelf
 STRIP		= $(CROSS_COMPILE)strip
 endif
+
+# Toolchain identity for Kconfig (CONFIG_CC_IS_CLANG, CONFIG_LD_IS_LLD,
+# CONFIG_AS_IS_LLVM). AS_IS_LLVM follows the -no-integrated-as decision below:
+# clang uses its integrated assembler unless LLVM_IAS=0.
+KBUILD_CC_IS_CLANG := $(if $(filter clang,$(cc-name)),1,0)
+KBUILD_LD_IS_LLD := $(if $(shell $(LD) -v 2>&1 | grep -q LLD && echo y),1,0)
+KBUILD_AS_IS_LLVM := $(if $(and $(filter clang,$(cc-name)),$(filter-out 0,$(or $(LLVM_IAS),1))),1,0)
+export KBUILD_CC_IS_CLANG KBUILD_LD_IS_LLD KBUILD_AS_IS_LLVM
 PAHOLE		= pahole
 # Distribution kbuild/header packages often install this outside PATH.
 # An explicit environment or make-command-line override still takes priority.
