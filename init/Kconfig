@@ -6,6 +6,33 @@ config KERNELVERSION
 	string
 	option env="KERNELVERSION"
 
+# Toolchain identity, exported by the top-level Makefile. This kernel predates
+# the Kconfig macro language, so the $(success,...) probes used upstream are
+# not available; the Makefile decides and Kconfig only mirrors the answer.
+config KBUILD_CC_IS_CLANG
+	string
+	option env="KBUILD_CC_IS_CLANG"
+
+config KBUILD_LD_IS_LLD
+	string
+	option env="KBUILD_LD_IS_LLD"
+
+config KBUILD_AS_IS_LLVM
+	string
+	option env="KBUILD_AS_IS_LLVM"
+
+config CC_IS_CLANG
+	def_bool KBUILD_CC_IS_CLANG = "1"
+
+config CC_IS_GCC
+	def_bool !CC_IS_CLANG
+
+config LD_IS_LLD
+	def_bool KBUILD_LD_IS_LLD = "1"
+
+config AS_IS_LLVM
+	def_bool KBUILD_AS_IS_LLVM = "1"
+
 config DEFCONFIG_LIST
 	string
 	depends on !UML
