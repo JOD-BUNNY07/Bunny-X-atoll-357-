@@ -111,6 +111,20 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+# Kernel FCM level 7 (Android 17, 4.14) requirements checked by the ROM's VINTF step.
+required_configs=(
+  CONFIG_AS_IS_LLVM CONFIG_CC_IS_CLANG CONFIG_CFI_CLANG CONFIG_HIDRAW
+  CONFIG_HID_PLAYSTATION CONFIG_KFENCE CONFIG_LD_IS_LLD CONFIG_NET_ACT_BPF
+  CONFIG_NET_ACT_POLICE CONFIG_NET_CLS_MATCHALL CONFIG_NET_SCH_TBF
+  CONFIG_PLAYSTATION_FF CONFIG_RD_LZ4 CONFIG_SHADOW_CALL_STACK
+)
+for config in "${required_configs[@]}"; do
+  if ! grep -qx "$config=y" "$OUT_DIR/.config"; then
+    echo -e "\n❌ \033[1;31mRequired kernel config missing: $config\033[0m"
+    exit 1
+  fi
+done
+
 # =====================[ COMPILING ]=====================
 
 echo -e "\n🚀 \033[1;35mStarting compilation...\033[0m"
