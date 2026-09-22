@@ -39,10 +39,12 @@
 #define KSU_APP_PROFILE_PRESERVE_UID 9999 // NOBODY_UID
 #define KSU_DEFAULT_SELINUX_DOMAIN "u:r:" KERNEL_SU_DOMAIN ":s0"
 
+#if defined(KSU_ALLOWLIST_DOES_NOT_HAVE_FALLTHROUGH)
 #if __has_attribute(__fallthrough__)
 # define fallthrough                    __attribute__((__fallthrough__))
 #else
 # define fallthrough                    do {} while (0)  /* fallthrough */
+#endif
 #endif
 
 static DEFINE_MUTEX(allowlist_mutex);
@@ -627,6 +629,7 @@ void ksu_prune_allowlist(bool (*is_uid_valid)(uid_t, char *, void *),
 
 void __init ksu_allowlist_init(void)
 {
+	INIT_WORK(&ksu_save_allow_list_work, do_persistent_allow_list);
 	init_default_profiles();
 }
 
