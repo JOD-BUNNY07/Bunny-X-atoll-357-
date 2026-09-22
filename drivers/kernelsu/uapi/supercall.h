@@ -193,8 +193,8 @@ static const __u32 KSU_IOCTL_MANAGE_MARK = _IOC(_IOC_READ | _IOC_WRITE, 'K', 16,
 static const __u32 KSU_IOCTL_NUKE_EXT4_SYSFS = _IOC(_IOC_WRITE, 'K', 17, 0);
 static const __u32 KSU_IOCTL_ADD_TRY_UMOUNT = _IOC(_IOC_WRITE, 'K', 18, 0);
 static const __u32 KSU_IOCTL_SET_INIT_PGRP = _IO('K', 19);
-static const __u32 KSU_IOCTL_GET_SULOG_FD = _IOW('K', 20, struct ksu_get_sulog_fd_cmd);
 static const __u32 KSU_IOCTL_DISABLE_ESCAPE_TO_ROOT = _IO('K', 21);
+static const __u32 KSU_IOCTL_GET_SULOG_FD = _IOW('K', 20, struct ksu_get_sulog_fd_cmd);
 static const __u32 KSU_IOCTL_GET_HOOK_MODE = _IOC(_IOC_READ, 'K', 98, 0);
 static const __u32 KSU_IOCTL_GET_VERSION_TAG = _IOC(_IOC_READ, 'K', 99, 0);
 
