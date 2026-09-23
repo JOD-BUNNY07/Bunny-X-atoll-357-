@@ -72,7 +72,7 @@ static inline bool ksu_should_destroy_context(char *str)
 	size_t offset = 0;
 	while (offset < ksu_hide_type_len) {
 		const char *current_entry = ksu_hide_type_list + offset;
-		
+
 		if (strstr(str, current_entry)) {
 			status = true;
 			goto out_unlock;
@@ -90,7 +90,7 @@ static inline bool ksu_should_destroy_context(char *str)
 	while (offset < ksu_hide_rule_len) {
 		const char *src_rule = ksu_hide_rule_list + offset;
 		size_t src_sz = strlen(src_rule) + 1;
-			
+
 		const char *tgt_rule = src_rule + src_sz;
 		size_t tgt_sz = strlen(tgt_rule) + 1;
 
@@ -129,7 +129,7 @@ static inline bool ksu_should_destroy_context(char *str)
 	if (!str2) {
 		up_read(&ksu_sepolicy_shitlist_lock);
 		return false;
-	}		
+	}
 
 	struct ksu_rule_node *r_node;
 	list_for_each_entry(r_node, &ksu_hide_rule_list, list) {
@@ -180,7 +180,7 @@ int ksu_hide_setprocattr(const char *name, void *value, size_t size)
 
 	if (!ksu_should_destroy_context(buf))
 		return 0;
-	
+
 	pr_info("selinux_hide: setprocattr: destroy: %s\n", buf);
 	str[1] = '1';
 
@@ -243,7 +243,7 @@ static void destroy_kprobe(struct kprobe **kp_ptr)
 #endif // CONFIG_KPROBES
 
 
-static void ksu_selinux_hide_enable() 
+static void ksu_selinux_hide_enable()
 {
 	int ret = ksu_selinux_get_sids();
 	if (ret)
@@ -322,7 +322,7 @@ static int ksu_prepare_fake_status_page()
 	// not a leak when it is used forever :)
 	struct selinux_kernel_status *real_status = page_address(real_page);
 	struct selinux_kernel_status *fake_status = page_address(new_page);
-    
+
 	memcpy(fake_status, real_status, sizeof(*real_status));
 
 	fake_status->enforcing = 1;
@@ -335,9 +335,9 @@ static int ksu_prepare_fake_status_page()
 #endif
 
 	ksu_fake_status_page = new_page;
-    
+
 	pr_info("selinux_hide: ksu_fake_status_page ready! seq=%d\n", fake_status->sequence);
-            
+
 	return 0;
 }
 
@@ -385,7 +385,7 @@ static void ksu_init_hook_selinux_transaction_write()
 		goto bail_out;
 
 	if (!d_inode(path.dentry))
-		goto bail_out;		
+		goto bail_out;
 
 	struct file_operations *fops = (struct file_operations *)d_inode(path.dentry)->i_fop;
 	if (!fops)
@@ -410,12 +410,12 @@ static void ksu_init_hook_selinux_transaction_write()
 		goto bail_out;
 
 	void **target_slot = (void **)((unsigned long)writable_addr + offset);
-				
+
 	preempt_disable();
 	local_irq_disable();
-					
+
 	FORCE_VOLATILE(*target_slot) = (void *)ksu_selinux_transaction_write;
-					
+
 	local_irq_enable();
 	preempt_enable();
 
@@ -438,14 +438,14 @@ static void ksu_init_hook_selinux_status_open()
 		pr_info("selinux_hide: kern_path err: %d\n", error);
 		return;
 	}
-	
+
 	pr_info("selinux_hide: kern_path %s ok!\n", selinux_status);
 
 	if (!path.dentry)
 		goto bail_out;
 
 	if (!d_inode(path.dentry))
-		goto bail_out;	
+		goto bail_out;
 
 	struct file_operations *fops = (struct file_operations *)d_inode(path.dentry)->i_fop;
 	if (!fops)
@@ -471,12 +471,12 @@ static void ksu_init_hook_selinux_status_open()
 		goto bail_out;
 
 	void **target_slot = (void **)((unsigned long)writable_addr + offset);
-				
+
 	preempt_disable();
 	local_irq_disable();
-					
+
 	FORCE_VOLATILE(*target_slot) = (void *)ksu_sel_open_handle_status;
-					
+
 	local_irq_enable();
 	preempt_enable();
 
@@ -533,7 +533,7 @@ init_hooks:
 try_again:
 	if (!ksu_prepare_fake_status_page())
 		goto page_ok;
-		
+
 	msleep(1000);
 	tries = tries + 1;
 	if (tries > 10)

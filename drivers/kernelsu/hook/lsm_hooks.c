@@ -105,7 +105,7 @@ static int ksu_inode_rename(struct inode *old_dir, struct dentry *old_dentry,
 		return 0;
 	}
 
-	// Use d_name.name instead of the dangerous d_iname 
+	// Use d_name.name instead of the dangerous d_iname
 	// which can cause OOPS when the dentry is in an inconsistent state during rename
 	if (strcmp(new_dentry->d_name.name, "packages.list")) {
 		return 0;
@@ -302,7 +302,7 @@ static void ksu_hlist_del_safe(struct hlist_node *n)
 
 static void ksu_dethrone_selinux_setprocattr()
 {
-	struct hlist_head *head = ksu_hooks_setprocattr[0].head; 
+	struct hlist_head *head = ksu_hooks_setprocattr[0].head;
 	struct security_hook_list *pos;
 	struct hlist_node *tmp;
 
@@ -352,7 +352,7 @@ static void ksu_list_del_safe(struct list_head *entry)
 		return;
 
 	struct list_head **target = (void *)((unsigned long)w_page + offset_p);
-	
+
 	preempt_disable();
 	local_irq_disable();
 
@@ -362,7 +362,7 @@ static void ksu_list_del_safe(struct list_head *entry)
 	preempt_enable();
 
 	vunmap(w_page);
-	
+
 	smp_mb();
 
 	if (!next)
@@ -380,7 +380,7 @@ static void ksu_list_del_safe(struct list_head *entry)
 	w_page = vmap(&page_n, 1, VM_MAP, PAGE_KERNEL);
 	if (!w_page)
 		return;
-	
+
 	target = (void *)((unsigned long)w_page + offset_n);
 
 	preempt_disable();

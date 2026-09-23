@@ -27,15 +27,22 @@
 
 uint32_t ksuver_override = 0;
 
+#define KSU_DRIVER_PERMISSION_SU_SESSION (1UL << 0)
+
+struct ksu_driver_context {
+    unsigned long permissions;
+};
+
 static int anon_ksu_release(struct inode *inode, struct file *filp)
 {
+	kfree(filp->private_data);
 	pr_info("ksu fd released\n");
 	return 0;
 }
 
 static long anon_ksu_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
-    return ksu_supercall_handle_ioctl(cmd, (void __user *)arg);
+    return ksu_supercall_handle_ioctl(filp, cmd, (void __user *)arg);
 }
 
 static const struct file_operations anon_ksu_fops = {
@@ -45,23 +52,34 @@ static const struct file_operations anon_ksu_fops = {
 	.release = anon_ksu_release,
 };
 
-int ksu_install_fd(void)
+static int ksu_install_fd_with_permissions(unsigned int fd_flags, unsigned long permissions)
 {
+	struct ksu_driver_context *context;
 	struct file *filp;
+	const char *name;
 	int fd;
 
 	// Get unused fd
-	fd = get_unused_fd_flags(O_CLOEXEC);
+	context = kzalloc(sizeof(*context), GFP_KERNEL);
+    if (!context)
+        return -ENOMEM;
+
+    context->permissions = permissions;
+    name = permissions & KSU_DRIVER_PERMISSION_SU_SESSION ? "[ksu_driver_su]" : "[ksu_driver]";
+
+    fd = get_unused_fd_flags(fd_flags);
 	if (fd < 0) {
 		pr_err("ksu_install_fd: failed to get unused fd\n");
+		kfree(context);
 		return fd;
 	}
 
 	// Create anonymous inode file
-	filp = anon_inode_getfile("[ksu_driver]", &anon_ksu_fops, NULL, O_RDWR | O_CLOEXEC);
+	filp = anon_inode_getfile(name, &anon_ksu_fops, context, O_RDWR);
 	if (IS_ERR(filp)) {
 		pr_err("ksu_install_fd: failed to create anon inode file\n");
 		put_unused_fd(fd);
+		kfree(context);
 		return PTR_ERR(filp);
 	}
 
@@ -71,6 +89,24 @@ int ksu_install_fd(void)
 	pr_info("ksu fd installed: %d for pid %d\n", fd, current->pid);
 
 	return fd;
+}
+
+int ksu_install_fd(void)
+{
+    return ksu_install_fd_with_permissions(O_CLOEXEC, 0);
+}
+
+int ksu_install_su_fd(void)
+{
+    // This descriptor must be installed after the exec into ksud.
+    return ksu_install_fd_with_permissions(O_CLOEXEC, KSU_DRIVER_PERMISSION_SU_SESSION);
+}
+
+bool ksu_is_su_session_fd(const struct file *filp)
+{
+    const struct ksu_driver_context *context = filp->private_data;
+
+    return context && (context->permissions & KSU_DRIVER_PERMISSION_SU_SESSION);
 }
 
 int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd,
@@ -194,7 +230,7 @@ int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd,
 		return 0;
 	}
 
-	// extensions 
+	// extensions
 	u64 reply = (u64)*arg;
 
 	if (magic2 == CHANGE_MANAGER_UID) {
@@ -212,7 +248,7 @@ int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd,
 
 		return 0;
 	}
-	
+
 	if (magic2 == GET_SULOG_DUMP_V2) {
 		// only root is allowed for this command
 		if (current_uid().val != 0)
@@ -241,7 +277,7 @@ int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd,
 	// WARNING!!! triple ptr zone! ***
 	// https://wiki.c2.com/?ThreeStarProgrammer
 	if (magic2 == CHANGE_SPOOF_UNAME) {
-		// only root is allowed for this command 
+		// only root is allowed for this command
 		if (current_uid().val != 0)
 			return 0;
 
@@ -277,12 +313,12 @@ int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd,
 		// for release
 		if (strncpy_from_user(release_buf, (char __user *)u_ptr, sizeof(release_buf)) < 0)
 			return 0;
-		release_buf[sizeof(release_buf) - 1] = '\0'; 
+		release_buf[sizeof(release_buf) - 1] = '\0';
 
 		// for version
 		if (strncpy_from_user(version_buf, (char __user *)(u_ptr + strlen(release_buf) + 1), sizeof(version_buf)) < 0)
 			return 0;
-		version_buf[sizeof(version_buf) - 1] = '\0'; 
+		version_buf[sizeof(version_buf) - 1] = '\0';
 
 		if (original_release_buf[0] == '\0') {
 			struct new_utsname *u_curr = utsname();

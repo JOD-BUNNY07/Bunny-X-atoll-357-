@@ -119,7 +119,7 @@ void disable_seccomp(void)
 #endif
 	current->seccomp.mode = 0;
 	current->seccomp.filter = NULL;
-	
+
     spin_unlock_irq(&current->sighand->siglock);
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0) ||                          \

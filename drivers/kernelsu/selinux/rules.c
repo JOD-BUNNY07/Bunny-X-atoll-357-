@@ -171,7 +171,7 @@ static int apply_kernelsu_rules_fn(void *ptr)
     // Allow system server kill su process
     ksu_allow(db, "system_server", KERNEL_SU_DOMAIN, "process", "getpgid");
     ksu_allow(db, "system_server", KERNEL_SU_DOMAIN, "process", "sigkill");
-    
+
     return 0;
 }
 
@@ -207,7 +207,7 @@ out_unlock:
 	cpumask_t old_mask;
 	db = get_policydb();
 	rwlock_t *lock = ksu_get_policy_rwlock();
-	
+
 	if (!lock)
 		goto do_stop_machine;
 

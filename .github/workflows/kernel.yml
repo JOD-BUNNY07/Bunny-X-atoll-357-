@@ -1,101 +1,205 @@
-name: Kernel Build
+name: BunnyX Kernel Build
 
 on:
   push:
-    branches:
-      - astra
-      - astra-ksu
-      - mcqueen-ksu
-      - mcqueen
-  pull_request:
+    branches: [Test, Ksu-3.4.0-sufs-2.3.0, ResukiSU-msm-performance, fsync, Resukisu-Sony-LMK-Port, ReSukiSU-clean, Ksu-3.3.0-susfs-2.2.0-backup,  mcqueen, mcqueen-ksu]
   workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build'
+        required: true
+        default: 'Ksu-3.4.0-sufs-2.3.0'
+        type: choice
+        options:
+          - Test
+          - Ksu-3.4.0-sufs-2.3.0
+          - ReSukiSU-clean
+          - Resukisu-Sony-LMK-Port
+          - fsync
+          - ResukiSU-msm-performance
+          - mcqueen
+          - mcqueen-ksu
+          - Ksu-3.3.0-susfs-2.2.0-backup
+      defconfig:
+        description: 'Defconfig'
+        required: true
+        default: 'atoll_defconfig'
+        type: choice
+        options:
+          - atoll_defconfig
+          - atoll-perf_defconfig
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 120
+
     env:
-      CCACHE_DIR: ~/.ccache
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      BRANCH: ${{ github.event.inputs.branch || github.ref_name }}
+      DEFCONFIG: ${{ github.event.inputs.defconfig || 'atoll_defconfig' }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH }}
+          fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN }}
 
-      - name: Install dependencies
+      - name: Setup build environment
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev ccache zip
+          sudo swapoff -a 2>/dev/null || true
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
 
-      - name: Cache toolchains and AnyKernel3
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            bc bison flex curl git zip unzip \
+            libssl-dev python3 ccache \
+            clang lld gcc g++ \
+            libncurses5-dev lib32z1-dev
+
+          ccache --max-size=5G
+          ccache --zero-stats
+
+      - name: Cache Toolchains
         uses: actions/cache@v4
         with:
           path: |
-            ~/toolchains/clang
-            ~/toolchains/gcc-aarch64-linux-gnu-9.3
-            ~/AnyKernel3
-          key: ${{ runner.os }}-kernel-tools-v1
+            toolchains/clang/
+            toolchains/gcc/
+          key: ${{ runner.os }}-toolchains-${{ hashFiles('build.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-toolchains-
 
-      - name: Build kernel
-        run: bash ./build.sh
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ${{ runner.os }}-ccache-${{ env.BRANCH }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ env.BRANCH }}-
+            ${{ runner.os }}-ccache-
 
-      - name: Upload build log
+      - name: Build Kernel
+        id: kernel_build
+        continue-on-error: true
+        run: |
+          chmod +x build.sh
+          USE_CCACHE=1 \
+          CCACHE_DIR=${{ github.workspace }}/.ccache \
+          ./build.sh 2>&1 | tee build_full.log
+
+          BUILD_EXIT=${PIPESTATUS[0]}
+          echo "BUILD_EXIT=$BUILD_EXIT" >> $GITHUB_ENV
+          echo "build_status=$BUILD_EXIT" >> $GITHUB_OUTPUT
+
+          exit $BUILD_EXIT
+        env:
+          USE_CCACHE: 1
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+
+      - name: Save Build Log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-build-log
-          path: out/build.log
+          name: build-log-${{ env.BRANCH }}-${{ github.run_number }}
+          path: |
+            build_full.log
+            out/build.log
+            out/.config
+            out/.config.old
+          retention-days: 7
           if-no-files-found: ignore
 
-      - name: Collect artifact path
-        id: artifact
+      - name: Prepare Error Log
+        if: always() && (env.BUILD_EXIT != '0' || steps.kernel_build.outcome == 'failure')
         run: |
-          shopt -s nullglob
-          ZIP_FILES=(~/AnyKernel3/*.zip)
-          if [ ${#ZIP_FILES[@]} -eq 0 ]; then
-            echo "No zip artifact found in ~/AnyKernel3."
-            exit 1
-          fi
-          ZIP_PATH="$(ls -t "${ZIP_FILES[@]}" | head -n 1)"
-          ZIP_NAME="$(basename "$ZIP_PATH")"
-          echo "zip_path=$ZIP_PATH" >> "$GITHUB_OUTPUT"
-          echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
-          echo "ZIP_PATH=$ZIP_PATH" >> "$GITHUB_ENV"
-          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+          mkdir -p error_report
 
-      - name: Upload build artifact
+          {
+            echo "BUILD FAILED"
+            echo "Branch: ${{ env.BRANCH }}"
+            echo "Commit: ${{ github.sha }}"
+            echo "Actor: ${{ github.actor }}"
+            echo ""
+            echo "LAST 80 LINES:"
+            echo "=================="
+          } > error_report/summary.txt
+
+          if [ -f build_full.log ]; then
+            tail -n 80 build_full.log >> error_report/summary.txt
+
+            echo "" >> error_report/summary.txt
+            echo "ALL ERRORS:"
+            echo "=================="
+            grep -n -E "(error:|ERROR:|Error [0-9]+|make\[[0-9]+\].*Error)" build_full.log | tail -n 20 >> error_report/summary.txt
+
+            cp build_full.log error_report/
+          fi
+
+          if [ -f out/build.log ]; then
+            echo "" >> error_report/summary.txt
+            echo "OUT/BUILD.LOG LAST 50:"
+            echo "=================="
+            tail -n 50 out/build.log >> error_report/summary.txt
+          fi
+
+          head -c 3500 error_report/summary.txt > error_report/telegram_msg.txt
+
+      - name: Telegram Notify - Failure
+        if: always() && (env.BUILD_EXIT != '0' || steps.kernel_build.outcome == 'failure') && env.TELEGRAM_TOKEN != ''
+        run: |
+          MSG=$(cat error_report/telegram_msg.txt)
+
+          curl -s -X POST \
+            https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
+            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+            -d parse_mode="HTML" \
+            -d text="<b>BunnyX Kernel Build Failed!</b>%0A%0A<b>Branch:</b> ${{ env.BRANCH }}%0A<b>Run:</b> #${{ github.run_number }}%0A<b>Actor:</b> ${{ github.actor }}%0A<b>Commit:</b> <code>${{ github.sha }}</code>%0A%0A<a href='${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'>View Run</a>%0A%0A<pre>$(echo "$MSG" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')</pre>"
+
+          if [ -f error_report/summary.txt ]; then
+            curl -s -X POST \
+              https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendDocument \
+              -F chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+              -F document=@error_report/summary.txt \
+              -F caption="Full error log - ${{ env.BRANCH }} #${{ github.run_number }}"
+          fi
+
+      - name: Telegram Notify - Success
+        if: success() && env.BUILD_EXIT == '0' && env.TELEGRAM_TOKEN != ''
+        run: |
+          curl -s -X POST \
+            https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
+            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+            -d parse_mode="HTML" \
+            -d text="<b>BunnyX Kernel Build Complete!</b>%0A%0A<b>Branch:</b> ${{ env.BRANCH }}%0A<b>Run:</b> #${{ github.run_number }}%0A<b>Actor:</b> ${{ github.actor }}%0A%0A<a href='${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'>View Run</a>"
+
+      - name: Upload Artifact
+        if: success() && env.BUILD_EXIT == '0'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.artifact.outputs.zip_name }}
-          path: ${{ steps.artifact.outputs.zip_path }}
+          name: ${{ env.KERNEL_FULL_NAME }}
+          path: out/*.zip
+          retention-days: 7
 
-      - name: Upload to Telegram
-        if: ${{ github.event_name != 'pull_request' && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' }}
-        env:
-          BRANCH_NAME: ${{ github.ref_name }}
-          ACTOR: ${{ github.actor }}
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/') && env.BUILD_EXIT == '0'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: out/*.zip
+          name: "BunnyX Kernel ${{ github.ref_name }}"
+
+      - name: Check Build Status
+        if: env.BUILD_EXIT != '0'
         run: |
-          SHORT_SHA="${GITHUB_SHA::7}"
-          COMMIT_MSG=$(git log -1 --pretty=format:"%s" 2>/dev/null | head -c 200 || echo "(unavailable)")
-          BUILD_DATE=$(date -u "+%Y-%m-%d %H:%M UTC")
-          if [ ! -f "${ZIP_PATH}" ]; then
-            echo "Zip artifact not found at: ${ZIP_PATH}"
-            exit 1
-          fi
-          FILE_SIZE=$(du -sh "${ZIP_PATH}" | cut -f1)
-          escape_html() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'; }
-          CAPTION=$(printf '<b>⚡ ShadowBladeX Kernel Build</b>\n\n<b>Branch:</b> %s\n<b>Commit:</b> <code>%s</code>\n<b>Message:</b> %s\n<b>By:</b> %s\n<b>Built:</b> %s\n<b>Size:</b> %s\n\n<b>File:</b> <code>%s</code>' \
-            "$(escape_html "${BRANCH_NAME}")" \
-            "${SHORT_SHA}" \
-            "$(escape_html "${COMMIT_MSG}")" \
-            "$(escape_html "${ACTOR}")" \
-            "${BUILD_DATE}" \
-            "${FILE_SIZE}" \
-            "$(escape_html "${ZIP_NAME}")")
-          curl -fsSL -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
-            --form-string chat_id="${TELEGRAM_CHAT_ID}" \
-            -F "document=@${ZIP_PATH}" \
-            --form-string caption="${CAPTION}" \
-            --form-string parse_mode="HTML"
+          echo "Build failed with exit code ${{ env.BUILD_EXIT }}"
+          exit 1

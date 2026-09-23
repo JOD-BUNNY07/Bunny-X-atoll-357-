@@ -29,7 +29,7 @@ void sulog_init_heap(void)
 	sulog_buf_ptr = kzalloc(SULOG_BUFSIZ, GFP_KERNEL);
 	if (!sulog_buf_ptr)
 		return;
-	
+
 	pr_info("sulog_init: allocated %lu bytes on 0x%p \n", SULOG_BUFSIZ, sulog_buf_ptr);
 }
 
@@ -41,7 +41,7 @@ void sulog_init_heap(void)
  * - we do this forced pointer cast to cut down on compat, pre 4.10, ktime is a union
  *
  * - bs handling 64-bit division on 32-bit (do_div)
- * - remainder = do_div(dividend, divisor); dividend will hold the quotient 
+ * - remainder = do_div(dividend, divisor); dividend will hold the quotient
  * - for 64-bit we can straight up just use divide
  *
  */
@@ -49,7 +49,7 @@ static inline uint32_t boottime_s_get()
 {
 	ktime_t boottime_kt = ktime_get_boottime();
 
-#ifdef CONFIG_64BIT 
+#ifdef CONFIG_64BIT
 	uint64_t boottime_s = *(uint64_t *)&boottime_kt / 1000000000;
 #else
 	uint64_t boottime_s = *(uint64_t *)&boottime_kt;

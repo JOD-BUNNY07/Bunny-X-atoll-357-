@@ -228,7 +228,7 @@ static bool is_uid_exist(uid_t uid, char *package, void *data)
 }
 
 // Helper to know if Android is modifying the file
-static bool is_lock_held(const char *path) 
+static bool is_lock_held(const char *path)
 {
 	struct path kpath;
 
@@ -395,11 +395,11 @@ void track_throne(bool prune_only)
 	// First scan must be synchronous to not break FDE/FBEv1 on older kernels
 	if (unlikely(throne_tracker_first_run)) {
 		mutex_lock(&throne_tracker_mutex);
-		
+
 		const struct cred *saved_cred = override_creds(ksu_cred);
 		do_track_throne_core(prune_only);
 		revert_creds(saved_cred);
-		
+
 		mutex_unlock(&throne_tracker_mutex);
 		throne_tracker_first_run = false;
 		return;

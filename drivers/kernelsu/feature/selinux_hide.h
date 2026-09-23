@@ -34,7 +34,7 @@ static void ksu_add_shit_to_list(u32 cmd, const char *args[])
 	int argc = sepol_expected_argc(cmd);
 
 	if (cmd == KSU_SEPOLICY_CMD_TYPE || cmd == KSU_SEPOLICY_CMD_TYPE_ATTR || cmd == KSU_SEPOLICY_CMD_TYPE_STATE || cmd == KSU_SEPOLICY_CMD_ATTR) {
-		
+
 		const char *name = args[0];
 		size_t needed_len = strlen(name) + 3; // :type:\0
 
@@ -92,7 +92,7 @@ static void ksu_add_shit_to_list(u32 cmd, const char *args[])
 		size_t offset = 0;
 		while (offset < ksu_hide_rule_len) {
 			const char *src_chk = ksu_hide_rule_list + offset;
-			size_t src_sz = strlen(src_chk) + 1; // for \0			
+			size_t src_sz = strlen(src_chk) + 1; // for \0
 
 			const char *tgt_chk = src_chk + src_sz;
 			size_t tgt_sz = strlen(tgt_chk) + 1; // for \0
@@ -119,7 +119,7 @@ static void ksu_add_shit_to_list(u32 cmd, const char *args[])
 		char *w_ptr_src = ksu_hide_rule_list + ksu_hide_rule_len;
 		sprintf(w_ptr_src, ":%s:", src);
 
-		char *w_ptr_tgt = w_ptr_src + strlen(w_ptr_src) + 1; 
+		char *w_ptr_tgt = w_ptr_src + strlen(w_ptr_src) + 1;
 		sprintf(w_ptr_tgt, ":%s:", tgt);
 
 		ksu_hide_rule_len = new_total_len;
@@ -163,7 +163,7 @@ static void ksu_add_shit_to_list(u32 cmd, const char *args[])
 	size_t len;
 
 	if (cmd == KSU_SEPOLICY_CMD_TYPE || cmd == KSU_SEPOLICY_CMD_TYPE_ATTR || cmd == KSU_SEPOLICY_CMD_TYPE_STATE || cmd == KSU_SEPOLICY_CMD_ATTR) {
-		
+
 		const char *name = args[0];
 		len = strlen(name);
 
@@ -180,13 +180,13 @@ static void ksu_add_shit_to_list(u32 cmd, const char *args[])
 		t_node = kmalloc(sizeof(*t_node), GFP_KERNEL);
 		if (!t_node)
 			goto out_unlock;
-		
+
 		t_node->padded_name = kmalloc(len + 3, GFP_KERNEL);
 		if (!t_node->padded_name) {
 			kfree(t_node);
 			goto out_unlock;
 		}
-		
+
 		snprintf(t_node->padded_name, len + 3, ":%s:", name);
 		list_add(&t_node->list, &ksu_hide_type_list);
 
@@ -215,7 +215,7 @@ static void ksu_add_shit_to_list(u32 cmd, const char *args[])
 		if (!r_node->src) {
 			kfree(r_node);
 			goto out_unlock;
-		}		
+		}
 		snprintf(r_node->src, strlen(src) + 3, ":%s:", src);
 
 		r_node->tgt = kmalloc(strlen(tgt) + 3, GFP_KERNEL);

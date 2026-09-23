@@ -108,7 +108,7 @@ int ksu_handle_setresuid(uid_t ruid, uid_t euid, uid_t suid)
 #endif // #ifdef CONFIG_KSU_SUSFS
 
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-    // Check if spawned process is isolated service first, and force to do umount if so  
+    // Check if spawned process is isolated service first, and force to do umount if so
     if (is_zygote_isolated_service_uid(new_uid)) {
         goto do_umount;
     }

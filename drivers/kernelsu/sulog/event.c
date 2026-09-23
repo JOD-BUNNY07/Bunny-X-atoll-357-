@@ -1,3 +1,29 @@
+#include <asm/current.h>
+#include <linux/compat.h>
+#include <linux/cred.h>
+#include <linux/gfp.h>
+#include <linux/kernel.h>
+#include <linux/overflow.h>
+#include <linux/version.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
+#include <linux/sched/signal.h>
+#endif
+
+#include <linux/slab.h>
+#include <linux/string.h>
+#include <linux/uaccess.h>
+
+// untagged_addr is a macro in mm.h on x86 before 6.2
+#if defined(__x86_64__) && LINUX_VERSION_CODE < KERNEL_VERSION(6, 2, 0)
+#include <linux/mm.h>
+#endif
+
+#include "compat/kernel_compat.h"
+#include "feature/sulog.h"
+#include "infra/event_queue.h"
+#include "klog.h" // IWYU pragma: keep
+#include "sulog/event.h"
+
 #define KSU_SULOG_MAX_QUEUED 256U
 #define KSU_SULOG_MAX_PAYLOAD_LEN 2048U
 #define KSU_SULOG_MAX_ARG_STRINGS 0x7FFFFFFF
@@ -73,7 +99,7 @@ struct ksu_sulog_pending_event *ksu_sulog_capture(__u16 event_type, const char *
 
 	if (!ksu_sulog_is_enabled())
 		return NULL;
-	
+
 	if (event_type == KSU_SULOG_EVENT_IOCTL_GRANT_ROOT || event_type == KSU_SULOG_EVENT_SUCOMPAT) {
 		filename_len = 0;
 		argv_len = 0;
@@ -109,7 +135,7 @@ alloc:
 	filename_buf = (char *)payload + sizeof(*event);
 
 	size_t actual_copy_len = bprm_argv_len;
-	
+
 	if (bprm_argv_len > remaining - 1)
 		actual_copy_len = remaining - 1 ;
 
@@ -126,7 +152,7 @@ alloc:
 skip_copy:
 	event->filename_len = filename_len;
 	event->argv_len = argv_len;
-	
+
 	payload_len = (__u32)sizeof(*event) + filename_len + argv_len;
 
 	// unlikely
@@ -268,7 +294,7 @@ flatten:
 	int len = strlen(buf);
 	if (!len)
 		goto flatten_done;
-	
+
 	*(buf + len) = ' ';
 	buf = buf + len + 1;
 

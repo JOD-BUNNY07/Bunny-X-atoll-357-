@@ -42,7 +42,7 @@ static int do_grant_root(void __user *arg)
 	int ret;
     __u32 audit_uid = current_uid().val;
     __u32 audit_euid = current_euid().val;
-    
+
     // we already check uid above on allowed_for_su()
 
     write_sulog('i'); // log ioctl escalation
@@ -61,9 +61,12 @@ static int do_get_info(void __user *arg)
 	if (ksuver_override) {
 		cmd.version = ksuver_override;
 	}
-	
+
 #ifdef MODULE
 	cmd.flags |= KSU_GET_INFO_FLAG_LKM;
+    if (ksu_bundled) {
+        cmd.flags |= KSU_GET_INFO_FLAG_BUNDLED;
+    }
 #endif
 
 	if (is_manager()) {
@@ -100,6 +103,9 @@ static int do_get_info_legacy(void __user *arg)
 
 #ifdef MODULE
     cmd.flags |= KSU_GET_INFO_FLAG_LKM;
+    if (ksu_bundled) {
+        cmd.flags |= KSU_GET_INFO_FLAG_BUNDLED;
+    }
 #endif
 
     if (is_manager()) {
@@ -112,7 +118,7 @@ static int do_get_info_legacy(void __user *arg)
     cmd.flags |= KSU_GET_INFO_FLAG_PR_BUILD;
 #endif
     cmd.features = KSU_FEATURE_MAX;
-    
+
     if (copy_to_user(arg, &cmd, sizeof(cmd))) {
         pr_err("get_version: copy_to_user failed\n");
         return -EFAULT;
@@ -153,7 +159,7 @@ static int do_report_event(void __user *arg)
 				pr_info("boot_complete triggered\n");
 				on_boot_completed();
 #ifdef CONFIG_KSU_SUSFS
-            	susfs_start_sdcard_monitor_fn();
+	susfs_start_sdcard_monitor_fn();
 #endif // #ifdef CONFIG_KSU_SUSFS
 			}
 		}
@@ -470,7 +476,7 @@ static int do_get_wrapper_fd(void __user *arg) {
         pr_err("get_wrapper_fd: copy_from_user failed\n");
         return -EFAULT;
 	}
-	
+
 	return ksu_install_file_wrapper(cmd.fd);
 }
 
@@ -650,7 +656,7 @@ static int add_try_umount(void __user *arg)
     struct mount_entry *new_entry, *entry, *tmp;
     struct ksu_add_try_umount_cmd cmd;
     char buf[256] = {0};
-	
+
     if (copy_from_user(&cmd, arg, sizeof cmd))
         return -EFAULT;
 
@@ -672,8 +678,8 @@ static int add_try_umount(void __user *arg)
         case KSU_UMOUNT_ADD: {
             long len = strncpy_from_user(buf, (const char __user *)cmd.arg, 256);
             if (len <= 0)
-                return -EFAULT;    
-            
+                return -EFAULT;
+
             buf[sizeof(buf) - 1] = '\0';
 
             new_entry = kzalloc(sizeof(*new_entry), GFP_KERNEL);
@@ -720,7 +726,7 @@ static int add_try_umount(void __user *arg)
             long len = strncpy_from_user(buf, (const char __user *)cmd.arg, sizeof(buf) - 1);
             if (len <= 0)
                 return -EFAULT;
-            
+
             buf[sizeof(buf) - 1] = '\0';
 
             down_write(&mount_list_lock);
@@ -733,16 +739,16 @@ static int add_try_umount(void __user *arg)
                 }
             }
             up_write(&mount_list_lock);
-            
+
             return 0;
         }
-        
+
 		// this way userspace can deduce the memory it has to prepare.
 		case KSU_UMOUNT_GETSIZE: {
 			// check for pointer first
 			if (!cmd.arg)
 				return -EFAULT;
-		
+
 			size_t total_size = 0; // size of list in bytes
 
 			down_read(&mount_list_lock);
@@ -752,13 +758,13 @@ static int add_try_umount(void __user *arg)
 			up_read(&mount_list_lock);
 
 			pr_info("cmd_add_try_umount: total_size: %zu\n", total_size);
-			
+
 			if (copy_to_user((size_t __user *)cmd.arg, &total_size, sizeof(total_size)))
 				return -EFAULT;
 
 			return 0;
 		}
-		
+
 		// WARNING! this is straight up pointerwalking.
 		// this way we dont need to redefine the ioctl defs.
 		// this also avoids us needing to kmalloc
@@ -766,18 +772,18 @@ static int add_try_umount(void __user *arg)
 		case KSU_UMOUNT_GETLIST: {
 			if (!cmd.arg)
 				return -EFAULT;
-			
+
 			void *user_buf = (void *)cmd.arg;
 
 			down_read(&mount_list_lock);
 			list_for_each_entry(entry, &mount_list, list) {
 				pr_info("cmd_add_try_umount: entry: %s\n", entry->umountable);
-			
+
 				if (copy_to_user(user_buf, entry->umountable, strlen(entry->umountable) + 1 )) {
 					up_read(&mount_list_lock);
 					return -EFAULT;
 				}
-				
+
 				// walk it! +1 for null terminator
 				user_buf = (char *)user_buf + strlen(entry->umountable) + 1;
 			}
@@ -792,7 +798,7 @@ static int add_try_umount(void __user *arg)
         }
 
     } // switch(cmd.mode)
-    
+
     return 0;
 }
 
@@ -973,7 +979,8 @@ static const struct ksu_ioctl_cmd_map ksu_ioctl_handlers[] = {
         .cmd = KSU_IOCTL_GET_WRAPPER_FD,
         .name = "GET_WRAPPER_FD",
         .handler = do_get_wrapper_fd,
-        .perm_check = manager_or_root
+        .perm_check = manager_or_root,
+        .allow_su_session = true
     },
     {
         .cmd = KSU_IOCTL_MANAGE_MARK,
@@ -1000,10 +1007,11 @@ static const struct ksu_ioctl_cmd_map ksu_ioctl_handlers[] = {
         .perm_check = only_root
     },
     {
-        .cmd = KSU_IOCTL_DISABLE_ESCAPE_TO_ROOT, 
-        .name = "DISABLE_ESCAPE_TO_ROOT", 
-        .handler = do_disable_escape_to_root, 
-        .perm_check = only_root 
+        .cmd = KSU_IOCTL_DISABLE_ESCAPE_TO_ROOT,
+        .name = "DISABLE_ESCAPE_TO_ROOT",
+        .handler = do_disable_escape_to_root,
+        .perm_check = only_root,
+        .allow_su_session = true
     },
     {
         .cmd = KSU_IOCTL_GET_SULOG_FD,
@@ -1032,7 +1040,7 @@ static const struct ksu_ioctl_cmd_map ksu_ioctl_handlers[] = {
 };
 // clang-format on
 
-long ksu_supercall_handle_ioctl(unsigned int cmd, void __user *argp)
+long ksu_supercall_handle_ioctl(const struct file *filp, unsigned int cmd, void __user *argp)
 {
 	int i;
 
@@ -1043,8 +1051,8 @@ long ksu_supercall_handle_ioctl(unsigned int cmd, void __user *argp)
 	for (i = 0; ksu_ioctl_handlers[i].handler; i++) {
 		if (cmd == ksu_ioctl_handlers[i].cmd) {
 			// Check permission first
-			if (ksu_ioctl_handlers[i].perm_check &&
-			    !ksu_ioctl_handlers[i].perm_check()) {
+			if (ksu_ioctl_handlers[i].perm_check && !ksu_ioctl_handlers[i].perm_check() &&
+                !(ksu_ioctl_handlers[i].allow_su_session && ksu_is_su_session_fd(filp))) {
 				pr_warn("ksu ioctl: permission denied for cmd=0x%x uid=%d\n",
 					cmd, current_uid().val);
 				return -EPERM;

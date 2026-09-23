@@ -211,7 +211,7 @@ static bool is_sid_match(const struct cred *cred, u32 cached_sid,
     if (!tsec) {
         return false;
     }
-    
+
     // Fast path: use cached SID if available
     if (likely(cached_sid != 0)) {
         return tsec->sid == cached_sid;
@@ -261,7 +261,7 @@ u32 susfs_priv_app_sid = 0;
 static inline void susfs_set_sid(const char *secctx_name, u32 *out_sid)
 {
     int err;
-    
+
     if (!secctx_name || !out_sid) {
         pr_err("secctx_name || out_sid is NULL\n");
         return;
@@ -293,7 +293,7 @@ u32 susfs_get_sid_from_name(const char *secctx_name)
 {
     u32 out_sid = 0;
     int err;
-    
+
     if (!secctx_name) {
         pr_err("secctx_name is NULL\n");
         return 0;
