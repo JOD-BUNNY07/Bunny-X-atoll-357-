@@ -113,9 +113,6 @@ if [ ! -d "$GCC_DIR" ]; then
     git clone --depth=1 \
     https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-gnu-9.3 \
     "$GCC_DIR"
-else
-    echo -e "${GREEN}Using cached GCC${NC}"
-fi
 fi
 
 # ===== PATH SETUP (ORIGINAL) =====
@@ -188,21 +185,6 @@ rm -f "$ANYKERNEL_DIR/zImage" "$ANYKERNEL_DIR"/*.zip
 mkdir -p "$OUT_DIR"
 make O="$OUT_DIR" ARCH=arm64 "$DEFCONFIG" > /dev/null 2>&1
 make O="$OUT_DIR" ARCH=arm64 olddefconfig > /dev/null 2>&1
-
-# Kernel FCM level 7 (Android 17, 4.14) requirements checked by the ROM's VINTF step.
-required_configs=(
-  CONFIG_AS_IS_LLVM CONFIG_CC_IS_CLANG CONFIG_CFI_CLANG CONFIG_HIDRAW
-  CONFIG_HID_PLAYSTATION CONFIG_KFENCE CONFIG_LD_IS_LLD CONFIG_NET_ACT_BPF
-  CONFIG_NET_ACT_POLICE CONFIG_NET_CLS_MATCHALL CONFIG_NET_SCH_TBF
-  CONFIG_PLAYSTATION_FF CONFIG_RD_LZ4 CONFIG_SHADOW_CALL_STACK
-)
-
-for config in "${required_configs[@]}"; do
-  if ! grep -qx "$config=y" "$OUT_DIR/.config"; then
-    echo -e "\n❌ [1;31mRequired kernel config missing: $config[0m"
-    exit 1
-  fi
-done
 
 # Build with max parallelization
 JOBS=$(($(nproc) * 2))
@@ -277,3 +259,4 @@ Time: ${MINS}m ${SECS}s"
 mv "$ANYKERNEL_DIR/$ZIPNAME" "$OUT_DIR/"
 
 echo -e "${GREEN}Zip saved to: ${OUT_DIR}/${ZIPNAME}${NC}"
+

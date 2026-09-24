@@ -1134,8 +1134,6 @@ CONFIG_SBALANCE_EXCLUDE_CPUS="5,7"
 
 # Enable WPA3 personal
 CONFIG_SAE=y
-# Enable WPA3 personal
-CONFIG_SAE=y
 
 # KernelSU
 CONFIG_KSU=y
