@@ -53,12 +53,24 @@ obj-$(CONFIG_KSU) += kernelsu.o
 
 REPO_NAME := ReSukiSU
 
+KDIR := $(KDIR)
+
+GIT_BIN := /usr/bin/env PATH="$$PATH":/usr/bin:/usr/local/bin git
+
 KSU_SRC := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 
-KSU_VERSION := 35172
+# ReSukiSU is integrated directly into this kernel tree.
+# Do not require drivers/kernelsu to be a standalone git submodule.
+#
+# ReSukiSU is integrated directly into this kernel tree.
+# Do not require drivers/kernelsu to be a standalone git submodule.
+
+KSU_LOCAL_VERSION := 4600
+KSU_VERSION := $(shell expr 30000 + $(KSU_LOCAL_VERSION) + 700)
+
 KSU_TAG_NAME := v4.2.0-rc3
-KSU_COMMIT_SHA := 6803643
-KSU_BRANCH_NAME := main
+KSU_COMMIT_SHA := integrated
+KSU_BRANCH_NAME := ReSukiSU-SUSFS-4.2.0-rc3
 
 KSU_VERSION_FULL := $(subst ",,$(CONFIG_KSU_FULL_NAME_FORMAT))
 KSU_VERSION_FULL := $(subst %TAG_NAME%,$(KSU_TAG_NAME),$(KSU_VERSION_FULL))
