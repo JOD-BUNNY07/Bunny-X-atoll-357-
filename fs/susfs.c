@@ -1457,6 +1457,7 @@ out_copy_to_user:
 /* code is straightly borrowed from KernelSU's pkg_observer.c */
 #define SDCARD_ANDROID_PATH "/data/media/0/Android"
 bool susfs_is_sdcard_android_data_decrypted_read_mostly = false;
+bool susfs_is_sdcard_android_data_decrypted = false;
 DEFINE_STATIC_KEY_TRUE(susfs_is_sdcard_android_data_not_decrypted);
 struct watch_dir {
 	const char *path;
