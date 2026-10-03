@@ -75,24 +75,29 @@ echo -e "${CYAN}========================================${NC}"
 
 mkdir -p "$WORKDIR/toolchains"
 
-# ===== CLANG (ORIGINAL - DO NOT CHANGE) =====
-if [ ! -d "$CLANG_DIR" ]; then
-    echo -e "${YELLOW}Downloading Clang...${NC}"
+# ===== EXACT GOOGLE CLANG 22.0.2 / r596125 =====
+
+CLANG_VERSION="clang-r596125"
+CLANG_BUILD_ID="15071444"
+CLANG_BIN="$CLANG_DIR/$CLANG_VERSION"
+
+if [ ! -d "$CLANG_BIN" ]; then
+    echo -e "${YELLOW}Downloading Android Clang ${CLANG_VERSION}...${NC}"
+
+    mkdir -p "$CLANG_DIR"
+
     git clone --depth=1 \
-    https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
-    "$CLANG_DIR"
+        https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
+        "$CLANG_DIR"
+
+    if [ ! -d "$CLANG_BIN" ]; then
+        echo -e "${RED}Exact ${CLANG_VERSION} prebuilt not found${NC}"
+        exit 1
+    fi
 fi
 
-# Auto-detect latest clang (ORIGINAL)
-CLANG_BIN=$(find "$CLANG_DIR" -maxdepth 1 -type d -name "clang-r*" | sort -V | tail -1)
-
-if [ -z "$CLANG_BIN" ]; then
-    echo -e "${RED}No clang found${NC}"
-    ls -1 "$CLANG_DIR" | head -5
-    exit 1
-fi
-
-echo -e "${GREEN}Clang: $(basename $CLANG_BIN)${NC}"
+echo -e "${GREEN}Clang: ${CLANG_VERSION}${NC}"
+echo -e "${GREEN}Build ID: ${CLANG_BUILD_ID}${NC}"
 
 # ===== LLVM BINUTILS (ORIGINAL) =====
 BINUTILS_DIR="$CLANG_DIR/llvm-binutils-stable"
@@ -127,6 +132,12 @@ export STRIP=llvm-strip
 export OBJCOPY=llvm-objcopy
 export OBJDUMP=llvm-objdump
 
+export CXX=clang++
+export HOSTCC=clang
+export HOSTCXX=clang++
+export LLVM=1
+export LLVM_IAS=1
+
 echo -e "${GREEN}Compiler ready${NC}"
 
 # ===================== BUILD INFO BOX (NEW) =====================
@@ -136,13 +147,21 @@ echo -e "${CYAN}    COMPILER INFORMATION${NC}"
 echo -e "${CYAN}========================================${NC}"
 
 CLANG_VER=$(clang --version | head -n1)
+CLANG_FULL_VER=$(clang --version | sed -n '1,2p')
+
 echo -e "${GREEN}Clang: ${CLANG_VER}${NC}"
+echo -e "${GREEN}${CLANG_FULL_VER}${NC}"
 
-GCC_VER=$(aarch64-linux-gnu-gcc --version | head -n1)
-echo -e "${GREEN}GCC:   ${GCC_VER}${NC}"
+if ! clang --version | grep -q "based on r596125"; then
+    echo -e "${RED}ERROR: This is NOT the expected r596125 Clang${NC}"
+    clang --version
+    exit 1
+fi
 
-LD_VER=$(ld.lld --version | head -n1)
-echo -e "${GREEN}LD:    ${LD_VER}${NC}"
+if ! clang --version | grep -q "15071444"; then
+    echo -e "${YELLOW}WARNING: Build ID 15071444 was not detected${NC}"
+    clang --version
+fi
 
 echo ""
 echo -e "${CYAN}========================================${NC}"
