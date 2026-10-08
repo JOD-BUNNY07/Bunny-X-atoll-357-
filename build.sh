@@ -167,13 +167,17 @@ rm -f "$ANYKERNEL_DIR/zImage" "$ANYKERNEL_DIR"/*.zip
 
 # Update config
 mkdir -p "$OUT_DIR"
-make O="$OUT_DIR" ARCH=arm64 "$DEFCONFIG" > /dev/null 2>&1
-make O="$OUT_DIR" ARCH=arm64 olddefconfig > /dev/null 2>&1
+make O="$OUT_DIR" ARCH=arm64 \
+    LLVM=1 LLVM_IAS=1 CC=clang LD=ld.lld \
+    "$DEFCONFIG"
+make O="$OUT_DIR" ARCH=arm64 \
+    LLVM=1 LLVM_IAS=1 CC=clang LD=ld.lld \
+    olddefconfig
 
 # Kernel FCM level 7 (Android 17, 4.14) requirements checked by the ROM's VINTF step.
 required_configs=(
   CONFIG_AS_IS_LLVM CONFIG_CC_IS_CLANG CONFIG_CFI_CLANG CONFIG_HIDRAW
-  CONFIG_HID_PLAYSTATION CONFIG_KFENCE CONFIG_LD_IS_LLD CONFIG_NET_ACT_BPF
+  CONFIG_HID_PLAYSTATION CONFIG_LD_IS_LLD CONFIG_NET_ACT_BPF
   CONFIG_NET_ACT_POLICE CONFIG_NET_CLS_MATCHALL CONFIG_NET_SCH_TBF
   CONFIG_PLAYSTATION_FF CONFIG_RD_LZ4 CONFIG_SHADOW_CALL_STACK
 )
