@@ -73,8 +73,6 @@ choice
 	config DEFAULT_NOOP
 		bool "No-op"
 
-	config DEFAULT_MQ_DEADLINE
-		bool "MQ deadline" if MQ_IOSCHED_DEADLINE=y
 
 endchoice
 
