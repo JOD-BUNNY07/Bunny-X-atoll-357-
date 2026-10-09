@@ -29,6 +29,7 @@
 #include "adreno_trace.h"
 
 #include "a3xx_reg.h"
+#include "a6xx_reg.h"
 #include "adreno_a5xx.h"
 
 #define RB_HOSTPTR(_rb, _pos) \
