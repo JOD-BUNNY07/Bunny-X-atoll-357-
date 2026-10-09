@@ -2,16 +2,16 @@ name: BunnyX Kernel Build
 
 on:
   push:
-    branches: [Test, Ksu-3.4.0-sufs-2.3.0, ResukiSU-msm-performance, fsync, Resukisu-Sony-LMK-Port, ReSukiSU-clean, Ksu-3.3.0-susfs-2.2.0-backup,  mcqueen, mcqueen-ksu]
+    branches: [Ksu-3.4.0-Susfs-CP2A, Ksu-3.4.0-sufs-2.3.0, ResukiSU-msm-performance, fsync, Resukisu-Sony-LMK-Port, ReSukiSU-clean, Ksu-3.3.0-susfs-2.2.0-backup,  mcqueen, mcqueen-ksu]
   workflow_dispatch:
     inputs:
       branch:
         description: 'Branch to build'
         required: true
-        default: 'Ksu-3.4.0-sufs-2.3.0'
+        default: 'Ksu-3.4.0-Susfs-CP2A'
         type: choice
         options:
-          - Test
+          - Ksu-3.4.0-Susfs-CP2A
           - Ksu-3.4.0-sufs-2.3.0
           - ReSukiSU-clean
           - Resukisu-Sony-LMK-Port
