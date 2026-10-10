@@ -1,54 +1,41 @@
 
-name: BunnyX Kernel Build
+name: BunnyX Kernel Build - BakaSU Inline Hooks
 
 on:
-  push:
-    branches:
-      - Test
-      - Ksu-3.4.0-sufs-2.3.0
-      - ResukiSU-msm-performance
-      - BakaSU-Test
-      - Resukisu-Sony-LMK-Port
-      - ReSukiSU-clean
-      - Ksu-3.3.0-susfs-2.2.0-backup
-      - mcqueen
-      - mcqueen-ksu
-
   workflow_dispatch:
     inputs:
       branch:
-        description: 'Branch to build'
+        description: 'Branch to migrate and build'
         required: true
-        default: 'BakaSU-Test'
         type: choice
+        default: 'BakaSU-Test'
         options:
-          - Test
-          - Ksu-3.4.0-sufs-2.3.0
           - ReSukiSU-clean
-          - Resukisu-Sony-LMK-Port
+          - Ksu-3.4.0-sufs-2.3.0
           - BakaSU-Test
+          - Resukisu-Sony-LMK-Port
+          - fsync
           - ResukiSU-msm-performance
           - mcqueen
           - mcqueen-ksu
           - Ksu-3.3.0-susfs-2.2.0-backup
-
       defconfig:
         description: 'Defconfig'
         required: true
-        default: 'atoll_defconfig'
         type: choice
+        default: 'atoll_defconfig'
         options:
           - atoll_defconfig
           - atoll-perf_defconfig
-
+          - atoll-bakasu_defconfig
       migrate_to_bakasu:
-        description: 'Replace KSU-Next with BakaSU and apply SUSFS inline hooks (experimental)'
+        description: 'Migrate source and apply SUSFS inline hooks'
         required: true
-        default: true
         type: boolean
+        default: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -58,35 +45,29 @@ jobs:
     env:
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      BRANCH: ${{ github.event.inputs.branch || github.ref_name }}
-      DEFCONFIG: ${{ github.event.inputs.defconfig || 'atoll_defconfig' }}
-      MIGRATE_TO_BAKASU: ${{ inputs.migrate_to_bakasu || false }}
+      BRANCH: ${{ inputs.branch }}
+      DEFCONFIG: ${{ inputs.defconfig }}
+      BUILD_EXIT: '1'
 
     steps:
-      - name: Checkout
+      - name: Checkout selected branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.BRANCH }}
+          ref: ${{ inputs.branch }}
           fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN }}
 
       - name: Setup build environment
         run: |
           set -euo pipefail
-
-          sudo swapoff -a 2>/dev/null || true
           sudo fallocate -l 8G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
-          free -h
-
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends \
-            bc bison flex curl git zip unzip patch \
-            libssl-dev python3 ccache \
-            clang lld gcc g++ \
-            libncurses5-dev lib32z1-dev
-
+          sudo apt-get install -y --no-install-recommends \
+            bc bison flex curl git zip unzip libssl-dev python3 \
+            ccache clang lld gcc g++ libncurses5-dev lib32z1-dev
           ccache --max-size=5G
           ccache --zero-stats
 
@@ -109,100 +90,109 @@ jobs:
             ${{ runner.os }}-ccache-${{ env.BRANCH }}-
             ${{ runner.os }}-ccache-
 
-      # Migration is opt-in and should only be tested on a dedicated branch.
       - name: Check migration prerequisites
-        if: env.MIGRATE_TO_BAKASU == 'true'
+        if: ${{ inputs.migrate_to_bakasu == true }}
         run: |
           set -euo pipefail
-
-          if [ ! -d drivers/kernelsu ]; then
-            echo "::error::drivers/kernelsu not found."
-            exit 1
-          fi
-
-          if [ ! -f include/linux/susfs.h ] && \
-             [ ! -f include/linux/susfs_def.h ]; then
-            echo "::error::SUSFS headers not found; refusing migration."
-            exit 1
-          fi
-
-          if [ -n "$(git status --porcelain)" ]; then
-            echo "::error::Checkout is not clean before migration."
-            git status --short
-            exit 1
-          fi
-
-          mkdir -p migration-backup
-          git bundle create \
-            migration-backup/source-before-migration.bundle --all
-
-          git rev-parse HEAD > migration-backup/head-before.txt
-          git branch --show-current > migration-backup/branch-before.txt
+          test -f build.sh
+          test -d arch/arm64/configs
+          test -d drivers/kernelsu || test -d KernelSU
+          echo "Migration enabled for $BRANCH"
+          echo "This is a disposable CI checkout; source changes will not be pushed."
 
       - name: Download and validate migration scripts
-        if: env.MIGRATE_TO_BAKASU == 'true'
+        if: ${{ inputs.migrate_to_bakasu == true }}
         run: |
           set -euo pipefail
-
-          BAKASU_SETUP_URL="https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh"
-          INLINE_HOOK_URL="https://raw.githubusercontent.com/JackA1ltman/NonGKI_Kernel_Build_2nd/mainline/Patches/susfs_inline_hook_patches.sh"
-
+          mkdir -p migration-audit
           curl -fL --retry 3 \
-            "$BAKASU_SETUP_URL" -o /tmp/bakasu-setup.sh
-
+            https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh \
+            -o migration-audit/bakasu-setup.sh
           curl -fL --retry 3 \
-            "$INLINE_HOOK_URL" -o susfs_inline_hook_patches.sh
-
-          bash -n /tmp/bakasu-setup.sh
-          bash -n susfs_inline_hook_patches.sh
-
-          sha256sum /tmp/bakasu-setup.sh \
-            susfs_inline_hook_patches.sh
-
-          mkdir -p migration-backup
-          cp /tmp/bakasu-setup.sh migration-backup/
-          cp susfs_inline_hook_patches.sh migration-backup/
-
-          echo "Both scripts passed shell syntax checks."
-          echo "Source/API compatibility is not yet verified."
+            https://raw.githubusercontent.com/JackA1ltman/NonGKI_Kernel_Build_2nd/mainline/Patches/susfs_inline_hook_patches.sh \
+            -o migration-audit/susfs_inline_hook_patches.sh
+          bash -n migration-audit/bakasu-setup.sh
+          bash -n migration-audit/susfs_inline_hook_patches.sh
+          sha256sum migration-audit/*.sh | tee migration-audit/SHA256SUMS
 
       - name: Run BakaSU upstream setup
-        if: env.MIGRATE_TO_BAKASU == 'true'
+        if: ${{ inputs.migrate_to_bakasu == true }}
         run: |
           set -euo pipefail
-
-          bash /tmp/bakasu-setup.sh main
-
-          if [ ! -d drivers/kernelsu ]; then
-            echo "::error::Expected drivers/kernelsu after BakaSU setup, but it is missing."
+          bash migration-audit/bakasu-setup.sh main
+          test -d drivers/kernelsu || test -d KernelSU || {
+            echo "::error::BakaSU setup did not leave the expected source directory."
             exit 1
-          fi
-
-          git diff --check
-          git status --short
-          git diff --stat
+          }
 
       - name: Apply SUSFS inline hooks
-        if: env.MIGRATE_TO_BAKASU == 'true'
+        if: ${{ inputs.migrate_to_bakasu == true }}
         run: |
           set -euo pipefail
-
-          bash susfs_inline_hook_patches.sh
-
+          bash migration-audit/susfs_inline_hook_patches.sh
           git diff --check
-          git status --short
-          git diff --stat
+          git diff --stat | tee migration-audit/inline-hook-diff-stat.txt
+          git diff --binary > migration-audit/migration-source.patch
+          test -s migration-audit/migration-source.patch || {
+            echo "::error::No source changes detected after migration."
+            exit 1
+          }
 
-      - name: Save migration audit artifacts
-        if: always() && env.MIGRATE_TO_BAKASU == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: migration-audit-${{ env.BRANCH }}-${{ github.run_number }}
-          path: |
-            migration-backup/
-            susfs_inline_hook_patches.sh
-          retention-days: 7
-          if-no-files-found: ignore
+      - name: Prepare BakaSU defconfig
+        if: ${{ inputs.migrate_to_bakasu == true && inputs.defconfig == 'atoll-bakasu_defconfig' }}
+        run: |
+          set -euo pipefail
+          BASE=arch/arm64/configs/atoll-perf_defconfig
+          TARGET=arch/arm64/configs/atoll-bakasu_defconfig
+          test -f "$BASE"
+          cp "$BASE" "$TARGET"
+
+          KEYS='CONFIG_KSU|CONFIG_KSU_SUSFS|CONFIG_KSU_MULTI_MANAGER_SUPPORT|CONFIG_KSU_TRACEPOINT_HOOK|CONFIG_KSU_MANUAL_HOOK|CONFIG_KSU_SUSFS_SUS_PATH|CONFIG_KSU_SUSFS_SUS_MOUNT|CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT|CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT|CONFIG_KSU_SUSFS_SUS_KSTAT|CONFIG_KSU_SUSFS_SPOOF_UNAME|CONFIG_KSU_SUSFS_ENABLE_LOG|CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS|CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG|CONFIG_KSU_SUSFS_OPEN_REDIRECT|CONFIG_KSU_SUSFS_SUS_MAP'
+
+          sed -i -E \
+            "/^#? ?(${KEYS})=(y|m|n|[0-9]+|\".*\")$/d; /^# (${KEYS}) is not set$/d" \
+            "$TARGET"
+
+          cat >> "$TARGET" <<'CONFIG_EOF'
+
+          # BakaSU / SUSFS requested options
+          CONFIG_KSU=y
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_MULTI_MANAGER_SUPPORT=y
+
+          # Hook selection
+          # CONFIG_KSU_TRACEPOINT_HOOK is not set
+          # CONFIG_KSU_MANUAL_HOOK is not set
+
+          # SUSFS
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_MAP=y
+          CONFIG_EOF
+
+          echo "=== BakaSU defconfig ==="
+          tail -n 25 "$TARGET"
+
+      - name: Validate selected defconfig
+        if: ${{ inputs.migrate_to_bakasu == true }}
+        run: |
+          set -euo pipefail
+          CFG="arch/arm64/configs/$DEFCONFIG"
+          test -f "$CFG"
+          grep -q '^CONFIG_KSU=y$' "$CFG" || {
+            echo "::error::CONFIG_KSU=y missing from $CFG"
+            exit 1
+          }
+          echo "Selected defconfig: $CFG"
+          echo "Kconfig may drop unsupported symbols during olddefconfig."
 
       - name: Build Kernel
         id: kernel_build
@@ -210,21 +200,20 @@ jobs:
         run: |
           set -o pipefail
           chmod +x build.sh
-
           USE_CCACHE=1 \
-          CCACHE_DIR=${{ github.workspace }}/.ccache \
+          CCACHE_DIR="${GITHUB_WORKSPACE}/.ccache" \
+          DEFCONFIG="$DEFCONFIG" \
           ./build.sh 2>&1 | tee build_full.log
 
-          BUILD_EXIT=${PIPESTATUS[0]}
-          echo "BUILD_EXIT=$BUILD_EXIT" >> "$GITHUB_ENV"
-          echo "build_status=$BUILD_EXIT" >> "$GITHUB_OUTPUT"
-
-          exit "$BUILD_EXIT"
+          rc=${PIPESTATUS[0]}
+          echo "BUILD_EXIT=$rc" >> "$GITHUB_ENV"
+          echo "build_status=$rc" >> "$GITHUB_OUTPUT"
+          exit "$rc"
         env:
           USE_CCACHE: 1
           CCACHE_DIR: ${{ github.workspace }}/.ccache
 
-      - name: Save Build Log
+      - name: Save Build Log and Migration Audit
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -234,6 +223,7 @@ jobs:
             out/build.log
             out/.config
             out/.config.old
+            migration-audit/
           retention-days: 7
           if-no-files-found: ignore
 
@@ -241,123 +231,60 @@ jobs:
         if: always() && (env.BUILD_EXIT != '0' || steps.kernel_build.outcome == 'failure')
         run: |
           mkdir -p error_report
-
           {
             echo "BUILD FAILED"
-            echo "Branch: ${{ env.BRANCH }}"
-            echo "Commit: ${{ github.sha }}"
-            echo "Actor: ${{ github.actor }}"
-            echo ""
-            echo "LAST 80 LINES:"
-            echo "=================="
+            echo "Branch: $BRANCH"
+            echo "Commit: $GITHUB_SHA"
+            echo "Run: $GITHUB_RUN_NUMBER"
+            echo
+            echo "LAST 100 LINES:"
+            if [ -f build_full.log ]; then tail -n 100 build_full.log; fi
+            echo
+            echo "FINAL CONFIG:"
+            if [ -f out/.config ]; then
+              grep -E '^(CONFIG_KSU|CONFIG_KSU_SUSFS|CONFIG_KSU_MULTI_MANAGER_SUPPORT|CONFIG_KSU_MANUAL_HOOK|CONFIG_KSU_TRACEPOINT_HOOK|CONFIG_KSU_SUSFS_)=' out/.config || true
+            fi
           } > error_report/summary.txt
-
-          if [ -f build_full.log ]; then
-            tail -n 80 build_full.log >> error_report/summary.txt
-
-            echo "" >> error_report/summary.txt
-            echo "ALL ERRORS:"
-            echo "==================" >> error_report/summary.txt
-
-            grep -n -E \
-              "(error:|ERROR:|Error [0-9]+|make\[[0-9]+\].*Error)" \
-              build_full.log | tail -n 20 \
-              >> error_report/summary.txt || true
-
-            cp build_full.log error_report/
-          fi
-
-          if [ -f out/build.log ]; then
-            echo "" >> error_report/summary.txt
-            echo "OUT/BUILD.LOG LAST 50:" >> error_report/summary.txt
-            tail -n 50 out/build.log >> error_report/summary.txt
-          fi
-
-          head -c 3500 error_report/summary.txt \
-            > error_report/telegram_msg.txt
+          cp build_full.log error_report/ 2>/dev/null || true
 
       - name: Telegram Notify - Failure
-        if: always() && (env.BUILD_EXIT != '0' || steps.kernel_build.outcome == 'failure') && env.TELEGRAM_TOKEN != ''
-        env:
-          RUN_NUMBER: ${{ github.run_number }}
-          COMMIT_SHA: ${{ github.sha }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        if: always() && (env.BUILD_EXIT != '0' || steps.kernel_build.outcome == 'failure') && env.TELEGRAM_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
         run: |
           set -euo pipefail
-
-          MSG="$(cat error_report/telegram_msg.txt 2>/dev/null || echo 'Build failed before error summary was generated.')"
-
-          export MSG BRANCH="${BRANCH}" \
-            RUN_NUMBER="${RUN_NUMBER}" \
-            COMMIT_SHA="${COMMIT_SHA}" \
-            RUN_URL="${RUN_URL}"
-
-          python3 - <<'PY' > /tmp/telegram_failure.html
-          import html, os
-          msg = os.environ.get("MSG", "")
-          print(
-              "<b>BunnyX Kernel Build Failed!</b>\n\n"
-              f"<b>Branch:</b> {html.escape(os.environ.get('BRANCH', 'unknown'))}\n"
-              f"<b>Run:</b> #{html.escape(os.environ.get('RUN_NUMBER', 'unknown'))}\n"
-              f"<b>Commit:</b> <code>{html.escape(os.environ.get('COMMIT_SHA', 'unknown'))}</code>\n\n"
-              f"<a href=\"{html.escape(os.environ.get('RUN_URL', ''), quote=True)}\">View Run</a>\n\n"
-              f"<pre>{html.escape(msg[:3000])}</pre>"
-          )
-          PY
-
-          curl -fsS -X POST \
-            "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            -d "parse_mode=HTML" \
-            --data-urlencode text@/tmp/telegram_failure.html || true
-
+          curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=BunnyX BakaSU build failed | branch=${BRANCH} | run=${GITHUB_RUN_NUMBER} | ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           if [ -f error_report/summary.txt ]; then
-            curl -fsS -X POST \
-              "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendDocument" \
+            curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendDocument" \
               -F "chat_id=${TELEGRAM_CHAT_ID}" \
-              -F document=@error_report/summary.txt \
-              -F "caption=Full error log - ${BRANCH} #${RUN_NUMBER}" || true
+              -F document=@error_report/summary.txt
           fi
 
       - name: Telegram Notify - Success
-        if: success() && env.BUILD_EXIT == '0' && env.TELEGRAM_TOKEN != ''
-        env:
-          RUN_NUMBER: ${{ github.run_number }}
-          ACTOR: ${{ github.actor }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        if: success() && env.BUILD_EXIT == '0' && env.TELEGRAM_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
         run: |
-          set -euo pipefail
-
-          curl -fsS -X POST \
-            "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            -d "parse_mode=HTML" \
-            --data-urlencode "text=<b>BunnyX Kernel Build Complete!</b>
-
-          <b>Branch:</b> ${BRANCH}
-          <b>Run:</b> #${RUN_NUMBER}
-          <b>Actor:</b> ${ACTOR}
-
-          <a href='${RUN_URL}'>View Run</a>"
+          curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=BunnyX BakaSU build complete | branch=${BRANCH} | run=${GITHUB_RUN_NUMBER} | ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
       - name: Upload Artifact
         if: success() && env.BUILD_EXIT == '0'
         uses: actions/upload-artifact@v4
         with:
-          name: bunnyx-kernel-${{ env.BRANCH }}-${{ github.run_number }}
+          name: BunnyX-${{ env.BRANCH }}-${{ github.run_number }}
           path: out/*.zip
           retention-days: 7
           if-no-files-found: error
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/') && env.BUILD_EXIT == '0'
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: out/*.zip
           name: "BunnyX Kernel ${{ github.ref_name }}"
 
       - name: Check Build Status
-        if: env.BUILD_EXIT != '0'
+        if: always() && (env.BUILD_EXIT != '0' || steps.kernel_build.outcome == 'failure')
         run: |
-          echo "Build failed with exit code ${BUILD_EXIT:-unknown}"
+          echo "Build or migration failed."
           exit 1
