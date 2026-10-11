@@ -1,3 +1,4 @@
+KSU_SRC := $(srctree)/drivers/kernelsu
 kernelsu-objs := core/init.o
 kernelsu-objs += policy/allowlist.o
 kernelsu-objs += policy/app_profile.o
