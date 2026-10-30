@@ -1,0 +1,568 @@
+==================================================
+BAKASU INTEGRATION DIAGNOSTICS
+==================================================
+Fri Oct 30 12:32:57 IST 2026
+
+===== BRANCH & WORKTREE =====
+BakaSU-Manual-No-SUSFS
+?? bakasu_hook_audit.txt
+?? bakasu_hook_diagnostics.txt
+?? drivers/kernelsu/Kbuild.backup
+?? hook_diagnostic.sh
+?? tools/bakasu-source/
+?? tools/bakasu/
+
+===== BAKASU SOURCE COMMIT =====
+commit d5e9e025b8b49155f8014684d64c91742b465f65
+Author:     coolzyd9107 <35447134+coolzyd9107@users.noreply.github.com>
+AuthorDate: Sun Oct 25 00:00:35 2026 +0800
+Commit:     GitHub <noreply@github.com>
+CommitDate: Sun Oct 25 00:00:35 2026 +0800
+
+    kernel: limit code generators on CONFIG_KSU (#639)
+
+===== BAKASU KBUILD =====
+kernelsu-objs := core/init.o
+kernelsu-objs += policy/allowlist.o
+kernelsu-objs += policy/app_profile.o
+kernelsu-objs += policy/feature.o
+kernelsu-objs += feature/sucompat.o
+kernelsu-objs += feature/kernel_umount.o
+kernelsu-objs += feature/sulog.o
+kernelsu-objs += feature/adb_root.o
+kernelsu-objs += feature/selinux_hide.o
+kernelsu-objs += feature/shell_su_adb_only.o
+kernelsu-objs += feature/module_blacklist.o
+kernelsu-objs += hook/setuid_hook.o
+
+ifndef CONFIG_KSU_DISABLE_MANAGER
+kernelsu-objs += feature/dynamic_manager.o
+kernelsu-objs += manager/apk_sign.o
+kernelsu-objs += manager/throne_tracker.o
+kernelsu-objs += manager/manager.o
+endif
+
+kernelsu-objs += compat/kernel_compat.o
+kernelsu-objs += infra/su_mount_ns.o
+kernelsu-objs += infra/seccomp_cache.o
+kernelsu-objs += infra/file_wrapper.o
+kernelsu-objs += infra/event_queue.o
+kernelsu-objs += runtime/boot_event.o
+kernelsu-objs += runtime/ksud_integration.o
+
+kernelsu-objs += selinux/selinux.o
+kernelsu-objs += selinux/sepolicy.o
+kernelsu-objs += selinux/rules.o
+
+kernelsu-objs += sulog/event.o
+kernelsu-objs += sulog/fd.o
+
+kernelsu-objs += supercall/dispatch.o
+kernelsu-objs += supercall/perm.o
+kernelsu-objs += supercall/supercall.o
+
+ifdef CONFIG_ARM64
+kernelsu-objs += compat/apatch_conflict.o
+endif
+
+ccflags-y += -Wno-implicit-function-declaration -Wno-strict-prototypes -Wno-missing-prototypes
+ccflags-y += $(call cc-disable-warning, int-conversion)
+ccflags-y += -Wno-declaration-after-statement -Wno-unused-function -Wno-unused-variable -Wno-missing-braces
+ccflags-y += -Wno-int-to-pointer-cast -Wno-declaration-after-statement
+
+ccflags-y += -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include
+ccflags-y += -I$(srctree)/$(src) -I$(srctree)/$(src)/include
+ccflags-y += -I$(src) -I$(src)/include
+
+obj-$(CONFIG_KSU) += kernelsu.o
+
+REPO_NAME := BakaSU
+
+KDIR := $(KDIR)
+
+GIT_BIN := /usr/bin/env PATH="$$PATH":/usr/bin:/usr/local/bin git
+
+KSU_SRC := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
+
+LOCAL_GIT_EXISTS := $(shell test -e $(KSU_SRC)/../.git && echo 1 || echo 0)
+
+ifeq ($(LOCAL_GIT_EXISTS),0)
+$(info -- Can't find $(REPO_NAME) git submodule!)
+$(info -- If you are using bazel to build this kernel,)
+$(info -- Please go to Kbuild and change KSU_SRC to the absolute path of the KSU kernel folder.)
+$(error You should use $(REPO_NAME) as a git submodule instead of copying code directly)
+endif
+
+ifdef KBUILD_EXTMOD
+include $(KSU_SRC)/tools/ddk_compatible.mk
+endif
+
+$(shell cd $(KSU_SRC); [ -f ../.git/shallow ] && $(GIT_BIN) fetch --unshallow)
+KSU_LOCAL_VERSION := $(shell cd $(KSU_SRC); $(GIT_BIN) rev-list --count HEAD)
+KSU_VERSION := $(shell expr 30000 + $(KSU_LOCAL_VERSION) + 700)
+
+KSU_TAG_NAME    := $(shell cd $(KSU_SRC); $(GIT_BIN) describe --abbrev=0 --tags 2>/dev/null || echo "v4.1.0")
+KSU_COMMIT_SHA  := $(shell cd $(KSU_SRC); $(GIT_BIN) rev-parse --short=8 HEAD 2>/dev/null || echo "unknown")
+ifneq ($(shell cd $(KSU_SRC); $(GIT_BIN) diff-index --quiet HEAD; echo $$?),0)
+KSU_COMMIT_SHA  := $(KSU_COMMIT_SHA)-dirty
+endif
+KSU_BRANCH_NAME := $(shell cd $(KSU_SRC); $(GIT_BIN) branch --show-current 2>/dev/null || echo "unknown")
+
+# call subst to process placeholders
+KSU_VERSION_FULL := $(subst ",,$(CONFIG_KSU_FULL_NAME_FORMAT))
+KSU_VERSION_FULL := $(subst %TAG_NAME%,$(KSU_TAG_NAME),$(KSU_VERSION_FULL))
+KSU_VERSION_FULL := $(subst %COMMIT_SHA%,$(KSU_COMMIT_SHA),$(KSU_VERSION_FULL))
+KSU_VERSION_FULL := $(subst %REPO_NAME%,$(REPO_NAME),$(KSU_VERSION_FULL))
+KSU_VERSION_FULL := $(subst %BRANCH_NAME%,$(KSU_BRANCH_NAME),$(KSU_VERSION_FULL))
+KSU_VERSION_FULL := $(subst %KSU_VERSION%,$(KSU_VERSION),$(KSU_VERSION_FULL))
+
+$(info -- $(REPO_NAME) version code: $(KSU_VERSION))
+$(info -- $(REPO_NAME) version name: $(KSU_VERSION_FULL))
+
+ccflags-y += -DKSU_VERSION=$(KSU_VERSION)
+ccflags-y += -DKSU_VERSION_FULL=\"$(KSU_VERSION_FULL)\"
+
+ifdef CONFIG_KSU_MULTI_MANAGER_SUPPORT
+$(info -- Supported Managers: KernelSU Official, KOWSU, BakaSU )
+endif
+
+KERNEL_VERSION := $(VERSION).$(PATCHLEVEL)
+KERNEL_TYPE := Non-GKI
+# Check for GKI 2.0 (5.10+ or 6.x+)
+ifneq ($(shell test \( $(VERSION) -ge 5 -a $(PATCHLEVEL) -ge 10 \) -o $(VERSION) -ge 6; echo $$?),0)
+# Check for GKI 1.0 (5.4)
+ifeq ($(shell test $(VERSION)-$(PATCHLEVEL) = 5-4; echo $$?),0)
+KERNEL_TYPE := GKI 1.0
+endif
+else
+KERNEL_TYPE := GKI 2.0
+endif
+
+ifneq ($(shell test $(VERSION) -ge 4; echo $$?),0)
+KERNEL_TYPE := Non-GKI (Legacy)
+endif
+$(info -- KERNEL_VERSION: $(KERNEL_VERSION))
+$(info -- KERNEL_TYPE: $(KERNEL_TYPE))
+
+ifeq ($(CONFIG_ARM64),y)
+  kernelsu-objs += hook/arm64/patch_memory.o
+else ifeq ($(CONFIG_X86_64),y)
+  kernelsu-objs += hook/x86_64/patch_memory.o
+else ifeq ($(CONFIG_ARM),y)
+  kernelsu-objs += hook/arm32/patch_memory.o
+else ifeq ($(CONFIG_RISCV),y)
+  kernelsu-objs += hook/riscv64/patch_memory.o
+else
+  ifeq ($(CONFIG_KSU),y)
+    $(info -- Unsupported arch)
+    $(error $(REPO_NAME) only support arm64-v8a, armeabi-v7a, x86-64)
+  endif
+endif
+
+kernelsu-objs += infra/symbol_resolver.o
+
+ifeq ($(KERNEL_TYPE), GKI 2.0)
+  kernelsu-objs += hook/lsm_hook_magic.o
+endif
+
+ifeq ($(CONFIG_KSU),y)
+  ifneq ($(CONFIG_KALLSYMS_ALL),y)
+    include $(KSU_SRC)/tools/static_export_check.mk
+  endif
+endif
+
+ifdef CONFIG_KSU_TRACEPOINT_HOOK
+  $(info -- $(REPO_NAME): using Tracepoint Syscall Redirect Hook)
+
+  ifndef CONFIG_KSU_DISABLE_MANAGER
+    kernelsu-objs += manager/pkg_observer.o
+  endif
+
+  kernelsu-objs += hook/syscall_hook_manager.o
+  kernelsu-objs += hook/syscall_event_bridge.o
+  kernelsu-objs += hook/tp_marker.o
+  ifeq ($(CONFIG_ARM64),y)
+    kernelsu-objs += hook/arm64/syscall_hook.o
+  else ifeq ($(CONFIG_X86_64),y)
+    kernelsu-objs += hook/x86_64/syscall_hook.o
+  else ifeq ($(CONFIG_RISCV),y)
+    kernelsu-objs += hook/riscv64/syscall_hook.o
+  else
+    ifeq ($(CONFIG_KSU), y)
+      $(info -- Unsupported arch)
+      $(info -- Only arm64-v8a and x86-64 support for tracepoint hook)
+      $(error Unsupported arch for tracepoint hook)
+    endif
+  endif
+  ifeq ($(CONFIG_KSU),y)
+    ifneq ($(KERNEL_TYPE), GKI 2.0)
+      $(info -- $(REPO_NAME) TP Hooks are only supported on GKI 2.0 kernels.)
+      $(info -- Current Kernel Type: $(KERNEL_TYPE))
+      $(info -- If you really want to continue, go to Kbuild and comment out this warning.)
+      $(info -- Usually, this error occurs because you forgot to enable some kernel configurations.)
+      $(info -- Read: https://bakasu.org/guide/manual-integrate.html)
+      $(error TP hooks are incompatible with Non-GKI/GKI 1.0 kernels.)
+    endif
+  endif
+
+else ifdef CONFIG_KSU_MANUAL_HOOK
+  $(info -- $(REPO_NAME): using Manual Hook)
+  include $(KSU_SRC)/tools/manual_hook_check.mk
+else ifdef CONFIG_KSU_SUSFS
+  $(info -- $(REPO_NAME): using SuSFS Inline hook)
+  include $(KSU_SRC)/tools/inline_hook_check.mk
+  include $(KSU_SRC)/tools/susfs_compat.mk
+  ifeq ($(shell test -e $(srctree)/fs/susfs.c; echo $$?),0)
+    $(eval SUSFS_VERSION=$(shell cat $(srctree)/include/linux/susfs.h | grep -E '^#define SUSFS_VERSION' | cut -d' ' -f3 | sed 's/"//g'))
+    $(info )
+    $(info -- SUSFS_VERSION: $(SUSFS_VERSION))
+  else
+    $(info -- You have not integrated susfs in your kernel yet.)
+    $(info -- Read: https://gitlab.com/simonpunk/susfs4ksu)
+    $(error You should integrate susfs in your kernel.)
+  endif
+else
+  ifeq ($(CONFIG_KSU),y)
+    $(error Unsupported hook method)
+  endif
+endif
+
+ifndef CONFIG_KSU_TRACEPOINT_HOOK
+  # For old kernel, pkg observer maybe let system freeze
+  # https://github.com/Baka-SU/BakaSU/issues/82#issuecomment-4015396974
+  #
+  # 6.7- we use lsm_hooks to call ksu_handle_rename
+  # 6.8+ we use pkg_observer to track_throne
+  ifeq ($(shell test \( $(VERSION) -lt 6 -o \( $(VERSION) -eq 6 -a $(PATCHLEVEL) -lt 8 \) \) && echo y),y)
+      kernelsu-objs += hook/lsm_hooks.o
+  else
+    ifndef CONFIG_KSU_DISABLE_MANAGER
+      kernelsu-objs += manager/pkg_observer.o
+    endif
+  endif
+endif
+
+
+===== BAKASU HOOK MODE / KCONFIG =====
+	depends on KSU && !KSU_DISABLE_MANAGER
+	default y
+	help
+		Enable multi KernelSU manager support
+
+choice
+	prompt "KernelSU Hooking Method"
+	depends on KSU
+	default KSU_TRACEPOINT_HOOK
+	help
+	  Select the hooking method for KernelSU.
+	  Note: Tracepoint Syscall Redirect hook is only supported for GKI2(5.10+)
+
+config KSU_TRACEPOINT_HOOK
+	bool "Tracepoint Syscall Redirect"
+	help
+	  The standard, upstream method for modern kernels. 
+	  Utilizes GKI tracepoints for syscall redirection. 
+	  The implementation is only for devices with GKI2 support.
+	  Support for kernel 5.10+
+
+config KSU_MANUAL_HOOK
+	bool "Manually hook KernelSU"
+	depends on KSU != m
+	help
+	  If enabled, it hooks the required KernelSU syscalls 
+	  with a manually-patched function.
+	  Support for kernel 3.4+
+
+config KSU_SUSFS
+	bool "SUSFS Inline Hook"
+	depends on THREAD_INFO_IN_TASK && 64BIT
+	help
+	  Patch and Enable SUSFS to kernel with KernelSU.
+	  SuSFS Officially support kernel 5.10+
+	  This KSU driver support it for 4.3+ in KSU side, 
+	  But the kernel side susfs compatibility MUST completed by yourself.
+
+endchoice
+
+menu "KernelSU - Manual Hook Auto hook"
+    depends on KSU_MANUAL_HOOK
+
+comment "------------------------WARNING-------------------------------"
+comment "BakaSU will check EVERY hooks in kernel compile process"
+comment "If anything mismatch with document, Kernel compile maybe FAILED!"
+comment "See document if you face any compile failed due to hook check"
+comment "Document: https://bakasu.org/guide/manual-integrate.html"
+comment "--------------------------------------------------------------"
+
+config KSU_MANUAL_HOOK_AUTO_SETUID_HOOK
+	bool "Automatically hook setuid by lsm"
+	depends on KSU_MANUAL_HOOK
+	default y
+	help
+	  THIS OPTION CAN NOT BE USED IN KERNEL_VERSION >= 6.8 DUE TO LSM CHANGES
+	  YOU MUST MANUALLY HOOK SETRESUID
+
+	  If you turn off this option, edit kernel/sys.c.
+	  In __sys_setresuid(uid_t ruid, uid_t euid, uid_t suid)
+	  add a call to ksu_handle_setresuid there.
+
+config KSU_MANUAL_HOOK_AUTO_INITRC_HOOK
+    bool "Automatically hook ksu init rc by lsm"
+	depends on KSU_MANUAL_HOOK
+	default y
+	help
+	  THIS OPTION CAN NOT BE USED IN KERNEL_VERSION >= 6.8 DUE TO LSM CHANGES
+	  YOU MUST MANUALLY HOOK SYS_READ
+
+	  If you turn off this option, edit fs/read_write.c.
+	  in SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
+	  add a call to ksu_handle_sys_read there.
+
+config KSU_MANUAL_HOOK_AUTO_INPUT_HOOK
+    bool "Automatically hook input hook by input_handler"
+       depends on KSU_MANUAL_HOOK
+       default y
+       help
+         If you turn off this option, edit drivers/input/input.c.
+         in void input_event(struct input_dev *dev, unsigned int type, unsigned int code, int value)
+         add a call to ksu_handle_input_handle_event there.
+
+endmenu
+
+menu "KernelSU - SUSFS"
+    depends on KSU_SUSFS
+
+comment "------------------------WARNING-------------------------------"
+comment "BakaSU will check EVERY hooks in kernel compile process"
+comment "If anything mismatch with simonpunk's patch, Kernel compile maybe FAILED!"
+
+===== BAKASU MANUAL HOOK CHECKER =====
+define check_ksu_hook
+  ifeq ($$(shell grep -q -F "$(1)" $(2); echo $$$$?),0)
+      $$(info -- $$(REPO_NAME)/manual_hook: $(1) found)
+  else
+      $$(info -- You lost $(1) hook in your kernel)
+      $$(info -- Read: https://bakasu.org/guide/manual-integrate.html)
+      $$(error You should integrate $$(REPO_NAME) in your kernel. $(3))
+  endif
+endef
+
+define check_ksu_hook_incompatible
+  ifeq ($$(shell grep -q -F "$(1)" $(2); echo $$$$?),0)
+      $$(info -- $(1) is incompatible hook)
+      $$(info -- Read: https://bakasu.org/guide/manual-integrate.html)
+      $$(error You should integrate $$(REPO_NAME) in your kernel correctly.)
+  endif
+endef
+
+$(eval $(call check_ksu_hook_incompatible,ksu_vfs_read_hook,$(srctree)/fs/read_write.c))
+$(eval $(call check_ksu_hook_incompatible,is_ksu_transition,$(srctree)/security/selinux/hooks.c))
+
+ifeq ($(CONFIG_KSU_MANUAL_HOOK_AUTO_SETUID_HOOK), y)
+  $(info -- $(REPO_NAME)/manual_hook: You are using LSM hooks for setuid hooks.)
+  ifeq ($(shell test \( $(VERSION) -gt 6 -o \( $(VERSION) -eq 6 -a $(PATCHLEVEL) -ge 8 \) \) && echo y),y)
+      $(info -- You can't use LSM hooks for kernel version >=6.8)
+      $(info -- You should turn off CONFIG_KSU_MANUAL_HOOK_AUTO_SETUID_HOOK and hook setresuid manually)
+      $(info -- Read: https://bakasu.org/guide/manual-integrate.html)
+      $(error You can't use LSM hooks when kernel version >= 6.8)
+  endif
+else
+  $(info -- $(REPO_NAME)/manual_hook: You are using a manual setresuid hook for setuid hooks.)
+  $(eval $(call check_ksu_hook,ksu_handle_setresuid,$(srctree)/kernel/sys.c))
+endif
+
+ifeq ($(CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK), y)
+  $(info -- $(REPO_NAME)/manual_hook: You are using LSM hooks for init rc hooks.)
+  ifeq ($(shell test \( $(VERSION) -gt 6 -o \( $(VERSION) -eq 6 -a $(PATCHLEVEL) -ge 8 \) \) && echo y),y)
+      $(info -- You can't use LSM hooks for kernel version >=6.8)
+      $(info -- You should turn off CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK and hook sys_read manually.)
+      $(info -- Read: https://bakasu.org/guide/manual-integrate.html)
+      $(error You can't use LSM hooks when kernel version >= 6.8)
+  endif
+else
+  $(info -- $(REPO_NAME)/manual_hook: You are using a manual sys_read hook for init rc hooks.)
+  $(eval $(call check_ksu_hook,ksu_handle_sys_read,$(srctree)/fs/read_write.c))
+endif
+
+ifeq ($(CONFIG_KSU_MANUAL_HOOK_AUTO_INPUT_HOOK), y)
+  $(info -- $(REPO_NAME)/manual_hook: You are using input_handler for input hooks.)
+else
+  $(eval $(call check_ksu_hook,ksu_handle_input_handle_event,$(srctree)/drivers/input/input.c))
+endif
+
+# ksu_handle_execve / ksu_handle_post_execve -> ksu_handle_execve_common / ksu_handle_post_execve_common
+ifeq ($(shell grep -q -w 'ksu_handle_execve' $(srctree)/fs/exec.c && echo y),y)
+  $(info -- ksu_handle_execve is deprecated, please migrate to ksu_handle_execve_common)
+  $(info -- Read: https://bakasu.org/guide/manual-integrate.html)
+  $(error You should integrate $(REPO_NAME) in your kernel correctly.)
+endif
+
+ifeq ($(shell grep -q -w 'ksu_handle_post_execve' $(srctree)/fs/exec.c && echo y),y)
+  $(info -- ksu_handle_post_execve is deprecated, please migrate to ksu_handle_post_execve_common)
+  $(info -- Read: https://bakasu.org/guide/manual-integrate.html)
+  $(error You should integrate $(REPO_NAME) in your kernel correctly.)
+endif
+
+ifeq ($(shell grep -q "ksu_handle_execveat" $(srctree)/fs/exec.c; echo $$?),0)
+  $(info -- $(REPO_NAME)/manual_hook: ksu_handle_execveat found)
+else
+  ifeq ($(shell test \( $(VERSION) -lt 3 -o \( $(VERSION) -eq 3 -a $(PATCHLEVEL) -le 14 \) \) && echo y),y)
+    # https://github.com/torvalds/linux/commit/c4ad8f98bef77c7356aa6a9ad9188a6acc6b849d
+    # when 3.14-, we should use ksu_handle_execve 
+    ifeq ($(shell grep -q "ksu_handle_execve_common" $(srctree)/fs/exec.c; echo $$?),0)
+      $(info -- $(REPO_NAME)/manual_hook: ksu_handle_execve_common found)
+    else
+      $(info -- You lost ksu_handle_execve_common hook in your kernel)
+      $(info -- Read: https://bakasu.org/guide/manual-integrate.html)
+      $(error You should integrate $(REPO_NAME) in your kernel.)
+    endif
+  else
+    $(info -- You lost ksu_handle_execveat hook in your kernel)
+    $(info -- Read: https://bakasu.org/guide/manual-integrate.html)
+    $(error You should integrate $(REPO_NAME) in your kernel.)
+  endif
+endif
+
+$(eval $(call check_ksu_hook,ksu_handle_faccessat,$(srctree)/fs/open.c))
+$(eval $(call check_ksu_hook,ksu_handle_stat,$(srctree)/fs/stat.c))
+$(eval $(call check_ksu_hook,ksu_handle_newfstat_ret,$(srctree)/fs/stat.c))
+$(eval $(call check_ksu_hook,ksu_handle_fstat64_ret,$(srctree)/fs/stat.c))
+
+ifeq ($(shell test \( $(VERSION) -lt 3 -o \( $(VERSION) -eq 3 -a $(PATCHLEVEL) -le 11 \) \) && echo y),y)
+  # https://github.com/torvalds/linux/commit/15d94b82565ebfb0cf27830b96e6cf5ed2d12a9a
+  # when 3.11-, it maybe in kernel/sys.c
+  $(eval $(call check_ksu_hook,ksu_handle_sys_reboot,$(srctree)/kernel/sys.c))
+else
+  # when 3.12+, it is in kernel/reboot.c
+  $(eval $(call check_ksu_hook,ksu_handle_sys_reboot,$(srctree)/kernel/reboot.c))
+endif
+
+# we no need this hook, because we can directly replace selinux_ops to LSM hook in UL
+$(eval $(call check_ksu_hook_incompatible,ksu_handle_rename,$(srctree)/security/security.c))
+
+# opt ksu_key_permission, i think it are no need for UL
+
+===== BAKASU INLINE HOOK CHECKER =====
+define check_ksu_hook
+    ifeq ($$(shell grep -q "$(1)" $(2); echo $$$$?),0)
+        $$(info -- $$(REPO_NAME)/susfs_inline: $(1) found)
+    else
+        $$(info -- You lost $(1) hook in your kernel)
+        $$(info -- Please submit issue to your SUSFS patches author.)
+        $$(error You should integrate $$(REPO_NAME) in your kernel. $(3))
+    endif
+endef
+
+define check_ksu_hook_incompatible
+    ifeq ($$(shell grep -wq "$(1)" $(2); echo $$$$?),0)
+        $$(info -- $(1) is incompatible hook)
+        $$(info -- Please submit issue to your SUSFS patches author.(File: $(2)))
+        $$(error You should integrate $$(REPO_NAME) in your kernel correctly.)
+    endif
+endef
+
+define check_ksu_manual_guard
+    ifeq ($$(shell grep -wq "CONFIG_KSU_MANUAL_HOOK" $(1); echo $$$$?),0)
+        $$(info -- $$(REPO_NAME)/susfs_inline: WARNING: Detected KSU_MANUAL_HOOK guard in $(1) file.)
+        MANUAL_GUARD_FOUND := 1
+    endif
+endef
+
+$(info -- You are using SUSFS, if you face any issues, please MAKE SURE you are using LATEST SUSFS KERNEL SIDE before submit issue to BakaSU.)
+$(info -- We keep tracking simonpunk's latest changes, and don't maintain ANY backward compatibility for old version of susfs.)
+
+$(eval $(call check_ksu_hook_incompatible,ksu_vfs_read_hook,$(srctree)/fs/read_write.c))
+
+# Due to https://gitlab.com/simonpunk/susfs4ksu/-/commit/00be2d47171a0d8f0edb73ca1d5b45340bd72239
+# The commit has using static_key to replace the bool check.
+# So we need to add these old hook check to make sure the old hooks are changed to new hooks, 
+$(eval $(call check_ksu_hook_incompatible,ksu_input_hook,$(srctree)/drivers/input/input.c))
+$(eval $(call check_ksu_hook_incompatible,ksu_execveat_hook,$(srctree)/fs/exec.c))
+$(eval $(call check_ksu_hook_incompatible,ksu_init_rc_hook,$(srctree)/fs/read_write.c))
+$(eval $(call check_ksu_hook_incompatible,ksu_init_rc_hook,$(srctree)/fs/stat.c))
+
+$(eval $(call check_ksu_manual_guard,$(srctree)/kernel/sys.c))
+$(eval $(call check_ksu_hook,ksu_handle_setresuid,$(srctree)/kernel/sys.c))
+
+$(eval $(call check_ksu_manual_guard,$(srctree)/fs/exec.c))
+$(eval $(call check_ksu_hook,ksu_handle_execveat,$(srctree)/fs/exec.c))
+
+$(eval $(call check_ksu_manual_guard,$(srctree)/fs/open.c))
+$(eval $(call check_ksu_hook,ksu_handle_faccessat,$(srctree)/fs/open.c))
+
+$(eval $(call check_ksu_manual_guard,$(srctree)/fs/read_write.c))
+$(eval $(call check_ksu_hook,ksu_handle_sys_read,$(srctree)/fs/read_write.c))
+
+$(eval $(call check_ksu_manual_guard,$(srctree)/fs/stat.c))
+$(eval $(call check_ksu_hook,ksu_handle_stat,$(srctree)/fs/stat.c))
+
+$(eval $(call check_ksu_manual_guard,$(srctree)/kernel/reboot.c))
+$(eval $(call check_ksu_hook,ksu_handle_sys_reboot,$(srctree)/kernel/reboot.c))
+
+$(eval $(call check_ksu_manual_guard,$(srctree)/drivers/input/input.c))
+$(eval $(call check_ksu_hook,ksu_handle_input_handle_event,$(srctree)/drivers/input/input.c))
+
+ifeq ($(MANUAL_GUARD_FOUND),1)
+    $(info -- $(REPO_NAME)/susfs_inline: WARNING: Your build maybe broken.)
+    $(info -- $(REPO_NAME)/susfs_inline: - If you have any issue, please check your hook before submit an issue to $(REPO_NAME).)
+endif
+
+===== CURRENT DRIVER PATH =====
+drwx------. 17 u0_a466 u0_a466 3452 Oct 30 12:11 drivers/kernelsu
+
+===== DRIVER MAKEFILE ENTRY =====
+194:obj-$(CONFIG_KSU) += kernelsu/
+
+===== DRIVER KCONFIG ENTRY =====
+235:source "drivers/kernelsu/Kconfig"
+
+===== CURRENT ATOLL KSU CONFIG =====
+1139:CONFIG_KSU=y
+1140:CONFIG_KSU_MANUAL_HOOK=y
+1143:CONFIG_KSU_SUSFS=y
+1144:CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+1145:CONFIG_KSU_SUSFS_SUS_PATH=y
+1146:CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+1147:CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+1148:CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+1149:CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+1150:CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+1151:CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+1152:CONFIG_KSU_SUSFS_SPOOF_PROC_CMDLINE=y
+1153:CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+1154:CONFIG_KSU_SUSFS_ENABLE_LOG=n
+
+===== EXISTING KSU HOOKS IN KERNEL SOURCE =====
+fs/exec.c:1932:extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,
+fs/exec.c:1943:	ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
+fs/exec.c:1974:	ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
+fs/open.c:367:extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,
+fs/open.c:382:	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
+fs/read_write.c:588:extern __attribute__((cold)) int ksu_handle_sys_read(unsigned int fd,
+fs/read_write.c:602:		ksu_handle_sys_read(fd, &buf, &count);
+fs/stat.c:206:extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);
+fs/stat.c:423:	ksu_handle_stat(&dfd, &filename, &flag);
+fs/stat.c:571:	ksu_handle_stat(&dfd, &filename, &flag);
+fs/stat.c:715:	ksu_handle_stat(&dfd, &filename, &flag);
+kernel/reboot.c:281:extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
+kernel/reboot.c:293:	ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
+kernel/sys.c:599:extern int ksu_handle_setresuid(uid_t ruid, uid_t euid, uid_t suid);
+kernel/sys.c:610:	(void)ksu_handle_setresuid(ruid, euid, suid);
+drivers/input/input.c:450:extern __attribute__((cold)) int ksu_handle_input_handle_event(
+drivers/input/input.c:461:		ksu_handle_input_handle_event(&type, &code, &value);
+
+===== SUSFS VERSION REFERENCES =====
+include/linux/susfs.h:13:#define SUSFS_VERSION "v2.3.0"
+include/linux/susfs.h:209:struct st_susfs_version {
+include/linux/susfs.h:210:	char                                    susfs_version[16];
+drivers/kernelsu/Kbuild:310:$(eval SUSFS_VERSION=$(shell cat $(srctree)/include/linux/susfs.h | grep -E '^#define SUSFS_VERSION' | cut -d' ' -f3 | sed 's/"//g'))
+drivers/kernelsu/Kbuild:312:$(info -- SUSFS_VERSION: $(SUSFS_VERSION))
+drivers/kernelsu/Kbuild.backup:175:    $(eval SUSFS_VERSION=$(shell cat $(srctree)/include/linux/susfs.h | grep -E '^#define SUSFS_VERSION' | cut -d' ' -f3 | sed 's/"//g'))
+drivers/kernelsu/Kbuild.backup:177:    $(info -- SUSFS_VERSION: $(SUSFS_VERSION))
+fs/susfs.c:1440:	struct st_susfs_version info = {0};
+fs/susfs.c:1442:	if (copy_from_user(&info, (struct st_susfs_version __user*)*user_info, sizeof(info))) {
+fs/susfs.c:1447:	strncpy(info.susfs_version, SUSFS_VERSION, SUSFS_MAX_VERSION_BUFSIZE-1);
+fs/susfs.c:1450:	if (copy_to_user((struct st_susfs_version __user*)*user_info, &info, sizeof(info))) {
+fs/susfs.c:1648:	SUSFS_LOGI("susfs is initialized! version: " SUSFS_VERSION " \n");
+
+===== END OF DIAGNOSTICS =====
