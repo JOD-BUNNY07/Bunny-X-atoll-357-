@@ -17,7 +17,7 @@ define check_ksu_hook_incompatible
 endef
 
 define check_ksu_manual_guard
-    ifeq ($$(shell grep -wq "CONFIG_KSU_MANUAL_HOOK" $(1); echo $$$$?),0)
+    ifeq ($$(shell grep -Eq '^[[:space:]]*#[[:space:]]*(if|ifdef|ifndef|elif).*CONFIG_KSU_MANUAL_HOOK' $(1); echo $$$$?),0)
         $$(info -- $$(REPO_NAME)/susfs_inline: WARNING: Detected KSU_MANUAL_HOOK guard in $(1) file.)
         MANUAL_GUARD_FOUND := 1
     endif
@@ -39,7 +39,9 @@ $(eval $(call check_ksu_hook_incompatible,ksu_init_rc_hook,$(srctree)/fs/stat.c)
 $(eval $(call check_ksu_manual_guard,$(srctree)/kernel/sys.c))
 $(eval $(call check_ksu_hook,ksu_handle_setresuid,$(srctree)/kernel/sys.c))
 
-$(eval $(call check_ksu_manual_guard,$(srctree)/fs/exec.c))
+# fs/exec.c keeps CONFIG_KSU_MANUAL_HOOK guards only around the legacy SU-FD path.
+# With CONFIG_KSU_SUSFS selected and CONFIG_KSU_MANUAL_HOOK unset, these are inactive.
+# Do not treat these compatibility guards as active Manual Hook integration.
 $(eval $(call check_ksu_hook,ksu_handle_execveat,$(srctree)/fs/exec.c))
 
 $(eval $(call check_ksu_manual_guard,$(srctree)/fs/open.c))

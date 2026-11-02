@@ -583,9 +583,11 @@ static inline void file_pos_write(struct file *file, loff_t pos)
 		file->f_pos = pos;
 }
 
-#if defined(CONFIG_KSU) && !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
-extern bool ksu_init_rc_hook __read_mostly;
-extern void ksu_handle_sys_read(unsigned int fd);
+#ifdef CONFIG_KSU
+extern struct static_key_true ksu_is_init_rc_hook_enabled;
+extern int ksu_handle_sys_read(unsigned int fd,
+                               char __user **buf_ptr,
+                               size_t *count_ptr);
 #endif
 
 SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
@@ -596,9 +598,9 @@ SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
 	unsigned long read_time = jiffies;
 #endif /*OPLUS_FEATURE_IOMONITOR*/
 
-#if defined(CONFIG_KSU) && !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
-	if (unlikely(ksu_init_rc_hook))
-		ksu_handle_sys_read(fd);
+#ifdef CONFIG_KSU
+    if (static_branch_unlikely(&ksu_is_init_rc_hook_enabled))
+        ksu_handle_sys_read(fd, &buf, &count);
 #endif
 	if (f.file) {
 		loff_t pos = file_pos_read(f.file);
