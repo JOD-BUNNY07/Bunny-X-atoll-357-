@@ -2,20 +2,20 @@ name: BunnyX Kernel Build
 
 on:
   push:
-    branches: [Bunny-Ksu, Ksu-3.4.0-sufs-2.3.0, ResukiSU-msm-performance, fsync, Resukisu-Sony-LMK-Port, ReSukiSU-clean, Ksu-3.3.0-susfs-2.2.0-backup,  mcqueen, mcqueen-ksu]
+    branches: [Bunny-Ksu, Ksu-3.4.0-sufs-2.3.0, ResukiSU-msm-performance, Bunny-BakaSU-Inline-Hook, Resukisu-Sony-LMK-Port, ReSukiSU-clean, Ksu-3.3.0-susfs-2.2.0-backup,  mcqueen, mcqueen-ksu]
   workflow_dispatch:
     inputs:
       branch:
         description: 'Branch to build'
         required: true
-        default: 'Bunny-Ksu'
+        default: 'Bunny-BakaSU-Inline-Hook'
         type: choice
         options:
           - Bunny-Ksu
           - Ksu-3.4.0-sufs-2.3.0
           - ReSukiSU-clean
           - Resukisu-Sony-LMK-Port
-          - fsync
+          - Bunny-BakaSU-Inline-Hook
           - ResukiSU-msm-performance
           - mcqueen
           - mcqueen-ksu
