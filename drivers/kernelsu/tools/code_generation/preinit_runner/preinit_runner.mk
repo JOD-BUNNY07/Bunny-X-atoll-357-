@@ -20,7 +20,7 @@ KSU_RUNNER_SRC := $(KSU_SRC)/preinit/runner
 
 KSU_RUNNER_CFLAGS := $(CLANG_FLAGS) -std=gnu11 -Os -Wall \
 	-nostdinc -isystem $(shell $(CC) -print-file-name=include) \
-	-I$(KSU_RUNNER_SRC)/nolibc -I$(KSU_UAPI_INC) \
+	-I$(KSU_RUNNER_SRC)/nolibc -I$(KSU_UAPI_INC) -I$(KSU_SRC) \
 	-I$(KSU_SRC)/include \
 	-ffreestanding -fno-stack-protector -fno-pic -fno-pie \
 	-fno-asynchronous-unwind-tables -fno-unwind-tables \
