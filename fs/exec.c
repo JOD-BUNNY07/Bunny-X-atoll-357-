@@ -1917,9 +1917,6 @@ out_ret:
 __attribute__((hot))
 extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,
 				void *argv, void *envp, int *flags);
-#ifdef CONFIG_KSU_MANUAL_HOOK
-extern int ksu_install_su_fd(void);
-#endif
 #endif
 
 static int do_execveat_common(int fd, struct filename *filename,
@@ -1936,14 +1933,7 @@ static int do_execveat_common(int fd, struct filename *filename,
 		return su_session;
 	}
 	retval = __do_execve_file(fd, filename, argv, envp, flags, NULL);
-#ifdef CONFIG_KSU_MANUAL_HOOK
-	if (!retval && su_session > 0) {
-		int su_fd = ksu_install_su_fd();
 
-		if (su_fd < 0)
-			pr_warn("ksu: install su session fd failed: %d\n", su_fd);
-	}
-#endif
 	return retval;
 #else
 	return __do_execve_file(fd, filename, argv, envp, flags, NULL);
