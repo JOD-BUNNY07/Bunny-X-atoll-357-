@@ -1686,3 +1686,20 @@ void susfs_init(void) {
 /* No module exit is needed becuase it should never be a loadable kernel module */
 //void __init susfs_exit(void)
 
+/* TEMPORARY BUILD-TEST STUBS - NOT FOR FINAL USE */
+
+int susfs_add_sus_avd_allowed_by_type(
+    u32 s_type,
+    u32 t_type,
+    u32 c_type,
+    u32 orig_avd_allowed)
+{
+    return 0;
+}
+
+int susfs_add_sus_type(
+    const char *secctx,
+    u32 type_value)
+{
+    return 0;
+}
