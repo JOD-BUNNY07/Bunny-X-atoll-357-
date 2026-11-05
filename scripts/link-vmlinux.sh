@@ -202,7 +202,7 @@ gen_btf()
 
 	info "BTF" ${2}
 	vmlinux_link ${1}
-	LLVM_OBJCOPY=${OBJCOPY} ${PAHOLE} -J ${1}
+	LLVM_OBJCOPY=${OBJCOPY} ${PAHOLE} ${PAHOLE_FLAGS} -J ${1} || return 1
 
 	# Create ${2} which contains just .BTF section but no symbols. Add
 	# SHF_ALLOC because .BTF will be part of the vmlinux image. --strip-all
@@ -383,9 +383,9 @@ fi
 
 btf_vmlinux_bin_o=""
 if [ -n "${CONFIG_DEBUG_INFO_BTF}" ]; then
-	if gen_btf .tmp_vmlinux.btf .btf.vmlinux.bin.o ; then
-		btf_vmlinux_bin_o=.btf.vmlinux.bin.o
-	fi
+	PAHOLE_FLAGS=$(sh "${srctree}/scripts/btf-tools.sh")
+	gen_btf .tmp_vmlinux.btf .btf.vmlinux.bin.o
+	btf_vmlinux_bin_o=.btf.vmlinux.bin.o
 fi
 
 kallsymso=""

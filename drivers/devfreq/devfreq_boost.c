@@ -7,6 +7,7 @@
 
 #include <linux/devfreq_boost.h>
 #include <linux/input.h>
+#include <linux/kprofiles.h>
 #include <linux/kthread.h>
 #include <linux/msm_drm_notify.h>
 #include <linux/slab.h>
@@ -35,6 +36,8 @@ struct df_boost_drv {
 
 static void devfreq_input_unboost(struct work_struct *work);
 static void devfreq_max_unboost(struct work_struct *work);
+static void devfreq_update_boosts(struct boost_dev *b);
+static DEFINE_MUTEX(devfreq_boost_lock);
 
 #define BOOST_DEV_INIT(b, dev, freq) .devices[dev] = {				\
 	.input_unboost =							\
@@ -60,7 +63,8 @@ static void __devfreq_boost_kick(struct boost_dev *b)
 
 	set_bit(INPUT_BOOST, &b->state);
 	if (!mod_delayed_work(system_unbound_wq, &b->input_unboost,
-		msecs_to_jiffies(CONFIG_DEVFREQ_INPUT_BOOST_DURATION_MS))) {
+		msecs_to_jiffies(kp_input_boost_duration(
+			CONFIG_DEVFREQ_INPUT_BOOST_DURATION_MS)))) {
 		/* Set the bit again in case we raced with the unboost worker */
 		set_bit(INPUT_BOOST, &b->state);
 		wake_up(&b->boost_waitq);
@@ -114,9 +118,25 @@ void devfreq_register_boost_device(enum df_device device, struct devfreq *df)
 	struct df_boost_drv *d = &df_boost_drv_g;
 	struct boost_dev *b;
 
-	df->is_boost_device = true;
 	b = &d->devices[device];
+	mutex_lock(&devfreq_boost_lock);
 	WRITE_ONCE(b->df, df);
+	mutex_unlock(&devfreq_boost_lock);
+	devfreq_update_boosts(b);
+}
+
+void devfreq_unregister_boost_device(struct devfreq *df)
+{
+	struct df_boost_drv *d = &df_boost_drv_g;
+	int i;
+
+	/* Wait for any boost update before the device and bus client are freed. */
+	mutex_lock(&devfreq_boost_lock);
+	for (i = 0; i < DEVFREQ_MAX; i++) {
+		if (d->devices[i].df == df)
+			WRITE_ONCE(d->devices[i].df, NULL);
+	}
+	mutex_unlock(&devfreq_boost_lock);
 }
 
 static void devfreq_input_unboost(struct work_struct *work)
@@ -137,22 +157,29 @@ static void devfreq_max_unboost(struct work_struct *work)
 	wake_up(&b->boost_waitq);
 }
 
-static void devfreq_update_boosts(struct boost_dev *b, unsigned long state)
+static void devfreq_update_boosts(struct boost_dev *b)
 {
-	struct devfreq *df = b->df;
+	struct devfreq *df;
+	unsigned long state;
+
+	mutex_lock(&devfreq_boost_lock);
+	df = b->df;
+	if (!df)
+		goto unlock;
 
 	mutex_lock(&df->lock);
+	state = READ_ONCE(b->state);
 	if (state & BIT(SCREEN_OFF)) {
-		df->min_freq = df->profile->freq_table[0];
+		df->boost_min_freq = 0;
 		df->max_boost = false;
 	} else {
-		df->min_freq = state & BIT(INPUT_BOOST) ?
-			       min(b->boost_freq, df->max_freq) :
-			       df->profile->freq_table[0];
+		df->boost_min_freq = state & BIT(INPUT_BOOST) ? b->boost_freq : 0;
 		df->max_boost = state & BIT(MAX_BOOST);
 	}
 	update_devfreq(df);
 	mutex_unlock(&df->lock);
+unlock:
+	mutex_unlock(&devfreq_boost_lock);
 }
 
 static int devfreq_boost_thread(void *data)
@@ -177,7 +204,7 @@ static int devfreq_boost_thread(void *data)
 			break;
 
 		if (old_state != curr_state) {
-			devfreq_update_boosts(b, curr_state);
+			devfreq_update_boosts(b);
 			old_state = curr_state;
 		}
 	}

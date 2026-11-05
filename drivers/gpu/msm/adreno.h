@@ -662,14 +662,18 @@ enum adreno_device_flags {
  * kernel profiling buffer
  * @started: Number of GPU ticks at start of the drawobj
  * @retired: Number of GPU ticks at the end of the drawobj
+ * @ctx_start: A6xx context ticks at the start, excluding preempted time
+ * @ctx_end: A6xx context ticks at the end
  */
 struct adreno_drawobj_profile_entry {
 	uint64_t started;
 	uint64_t retired;
+	uint64_t ctx_start;
+	uint64_t ctx_end;
 };
 
 #define ADRENO_DRAWOBJ_PROFILE_COUNT \
-	(PAGE_SIZE / sizeof(struct adreno_drawobj_profile_entry))
+	((2 * PAGE_SIZE) / sizeof(struct adreno_drawobj_profile_entry))
 
 #define ADRENO_DRAWOBJ_PROFILE_OFFSET(_index, _member) \
 	 ((_index) * sizeof(struct adreno_drawobj_profile_entry) \

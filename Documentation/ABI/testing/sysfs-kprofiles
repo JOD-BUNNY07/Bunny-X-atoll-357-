@@ -1,0 +1,15 @@
+What:		/sys/kernel/kprofiles/kp_mode
+Date:		October 2026
+Contact:	ShadowBladeX maintainers
+Description:
+		Manual-only adaptation of beakthoven/Kprofiles. Read/write an
+		integer: 0 Default (unchanged tuning), 1 Battery, 2 Balanced,
+		3 Performance. Invalid writes preserve the previous mode.
+		No display automation, temporary overrides or notifier API.
+		Default is 0. Consumers define effects; see input boost drivers.
+
+		Input CPU/DDR boost duration: Battery uses half (rounded up),
+		Balanced and Default use configured duration, Performance uses
+		1.5x (rounded up, saturating). Zero remains zero. Active votes
+		expire normally; CPU work samples mode when the worker executes.
+		Explicit max/wake boosts, frequencies and thermal caps unchanged.

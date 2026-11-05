@@ -1595,7 +1595,7 @@ static int adreno_init(struct kgsl_device *device)
 
 	if (!adreno_is_a3xx(adreno_dev)) {
 		int r = kgsl_allocate_global(device,
-			&adreno_dev->profile_buffer, PAGE_SIZE,
+			&adreno_dev->profile_buffer, 2 * PAGE_SIZE,
 			0, 0, "alwayson");
 
 		adreno_dev->profile_index = 0;
@@ -1605,7 +1605,7 @@ static int adreno_init(struct kgsl_device *device)
 				&adreno_dev->priv);
 			kgsl_sharedmem_set(device,
 				&adreno_dev->profile_buffer, 0, 0,
-				PAGE_SIZE);
+				2 * PAGE_SIZE);
 		}
 
 	}
