@@ -288,3 +288,15 @@ void susfs_start_sdcard_monitor_fn(void);
 void susfs_init(void);
 
 #endif
+
+int susfs_add_sus_avd_allowed_by_type(
+    u32 s_type,
+    u32 t_type,
+    u32 c_type,
+    u32 orig_avd_allowed
+);
+
+int susfs_add_sus_type(
+    const char *secctx,
+    u32 type_value
+);
