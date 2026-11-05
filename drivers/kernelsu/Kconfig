@@ -233,6 +233,13 @@ config KSU_SUSFS_OPEN_REDIRECT
         - Please be reminded that process with open access to the target and redirected path can be detected.
         - Effective only on processes with uid < 2000.
 
+config KSU_SUSFS_PRIORITY_UID_FILTER
+    bool "Enable SUSFS priority UID filter"
+    depends on KSU_SUSFS
+    default y
+    help
+        Enable priority UID filtering and app string resolution.
+
 config KSU_SUSFS_SUS_MAP
     bool "Enable hiding some mmapped real files from different proc maps interfaces"
     depends on KSU_SUSFS

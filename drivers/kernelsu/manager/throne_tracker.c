@@ -418,7 +418,7 @@ void ksu_handle_rename(struct dentry *old_dentry, struct dentry *new_dentry)
 
     pr_info("renameat: %s -> %s, new path: %s\n", old_dentry->d_iname, new_dentry->d_iname, buf);
 
-#ifdef CONFIG_KSU_SUSFS
+#ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
     // Renew the getpriority uid bitmap filter
     susfs_parse_priority_app_strings();
 #endif
