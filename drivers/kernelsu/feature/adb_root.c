@@ -19,7 +19,7 @@
 #include "arch.h"
 #include "policy/feature.h"
 #include "selinux/selinux.h"
-#ifndef CONFIG_KSU_TRACEPOINT_HOOK
+#if !defined(CONFIG_KSU_TRACEPOINT_HOOK) && !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
 #include "runtime/ksud.h" // for user_arg_ptr
 #endif
 #include "compat/kernel_compat.h"
@@ -46,7 +46,7 @@ static inline long is_exec_adbd(const char *filename)
     return 1;
 }
 
-#ifdef CONFIG_KSU_TRACEPOINT_HOOK
+#if defined(CONFIG_KSU_TRACEPOINT_HOOK) || defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
 static long is_exec_adbd_tracepoint(const char __user *filename_user)
 {
     // should be bigger than `/apex/com.android.adbd/bin/adbd`
@@ -194,7 +194,7 @@ out_release_env_p:
     return ret;
 }
 
-#ifdef CONFIG_KSU_TRACEPOINT_HOOK
+#if defined(CONFIG_KSU_TRACEPOINT_HOOK) || defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
 static long do_ksu_adb_root_handle_execve(const char __user *filename_user, struct pt_regs *regs, unsigned long *envp_p)
 {
     if (likely(is_exec_adbd_tracepoint(filename_user) != 1)) {
@@ -220,8 +220,8 @@ long ksu_adb_root_handle_execve_tracepoint(struct pt_regs *regs)
     // Tracepoint Syscall Redirect hook always in GKI2
     // So there no need to check for modern static key interface
     if (static_branch_unlikely(&ksu_adb_root)) {
-        return do_ksu_adb_root_handle_execve((const char __user *)PT_REGS_SYSCALL_PARM1_USER_PTR(regs), regs,
-                                             (unsigned long *)&PT_REGS_NATIVE_PARM3(regs));
+        return do_ksu_adb_root_handle_execve((const char __user *)PT_REGS_SYSCALL_PARM1(regs), regs,
+                                             (unsigned long *)&PT_REGS_PARM3(regs));
     }
     return 0;
 }
@@ -229,8 +229,8 @@ long ksu_adb_root_handle_execve_tracepoint(struct pt_regs *regs)
 long ksu_adb_root_handle_execveat_tracepoint(struct pt_regs *regs)
 {
     if (static_branch_unlikely(&ksu_adb_root)) {
-        return do_ksu_adb_root_handle_execve((const char __user *)PT_REGS_USER_PTR(regs, 2), regs,
-                                             (unsigned long *)&PT_REGS_NATIVE_SYSCALL_PARM4(regs));
+        return do_ksu_adb_root_handle_execve((const char __user *)PT_REGS_PARM2(regs), regs,
+                                             (unsigned long *)&PT_REGS_SYSCALL_PARM4(regs));
     }
     return 0;
 }

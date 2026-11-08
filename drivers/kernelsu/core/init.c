@@ -17,6 +17,7 @@
 #include "policy/allowlist.h"
 #include "policy/app_profile.h"
 #include "policy/feature.h"
+#include "policy/su_request.h"
 #include "klog.h" // IWYU pragma: keep
 #include "manager/manager_observer.h"
 #include "manager/throne_tracker.h"
@@ -28,23 +29,27 @@
 #include "selinux/selinux.h"
 #include "hook/setuid_hook.h"
 #include "compat/kernel_compat.h"
-#include "feature/shell_su_adb_only.h"
+
 #include "feature/sulog.h"
+#include "feature/veil.h"
 #include "feature/adb_root.h"
 #include "feature/dynamic_manager.h"
-#include "feature/module_blacklist.h"
+#include "feature/module_load_filter.h"
 #include "feature/sucompat.h"
 #include "feature/selinux_hide.h"
+#include "feature/selinux_mode.h"
+#include "feature/shell_su_adb_only.h"
+#include "feature/root_gate.h"
 #include "infra/symbol_resolver.h"
 #include "preinit/preinit.h"
-#include "uapi/supercall.h"
 
 #ifdef CONFIG_ARM64
 #include "compat/apatch_conflict.h"
 #endif
 
-// if we are in Tracepoint hook, and won't enable PATCH_SYSCALL_DISPATCHER, check x86-64 hooks
-#if defined(CONFIG_KSU_TRACEPOINT_HOOK) && defined(__x86_64__) && !defined(CONFIG_KSU_X86_PATCH_SYSCALL_DISPATCHER)
+// if we are in Tracepoint/tamper hook, and won't enable PATCH_SYSCALL_DISPATCHER, check x86-64 hooks
+#if (defined(CONFIG_KSU_TRACEPOINT_HOOK) || defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)) && defined(__x86_64__) &&        \
+    !defined(CONFIG_KSU_X86_PATCH_SYSCALL_DISPATCHER)
 #include <asm/cpufeature.h>
 #include <linux/version.h>
 #ifndef X86_FEATURE_INDIRECT_SAFE
@@ -91,10 +96,11 @@ struct cred *ksu_cred;
 bool ksu_late_loaded;
 
 // dispatcher of ksu hooks
-#ifdef CONFIG_KSU_TRACEPOINT_HOOK
+#if defined(CONFIG_KSU_TRACEPOINT_HOOK) || defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
 #include "hook/syscall_hook_manager.h"
 #include "hook/syscall_hook.h"
-#else
+#endif
+#if !defined(CONFIG_KSU_TRACEPOINT_HOOK)
 #include "hook/lsm_hooks.h"
 #endif
 
@@ -108,9 +114,14 @@ static inline void __init ksu_hook_init(void)
     ksu_lsm_hook_magic_init();
 #endif
 
-#if defined(CONFIG_KSU_TRACEPOINT_HOOK)
+#if defined(CONFIG_KSU_TRACEPOINT_HOOK) || defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
     ksu_syscall_hook_init();
     ksu_syscall_hook_manager_init();
+#if defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE) && LINUX_VERSION_CODE < KERNEL_VERSION(6, 8, 0)
+    // Tamper still compiles in lsm_hooks.o below 6.8 (see Kbuild), so init it
+    // for rename tracking like the manual hook does.
+    ksu_lsm_hook_built_in_init();
+#endif
 #elif defined(CONFIG_KSU_MANUAL_HOOK)
 // only lsm hook need call init
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 8, 0)
@@ -132,7 +143,7 @@ static inline void __exit ksu_hook_exit(void)
     ksu_lsm_hook_magic_exit();
 #endif
 
-#if defined(CONFIG_KSU_TRACEPOINT_HOOK)
+#if defined(CONFIG_KSU_TRACEPOINT_HOOK) || defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
     ksu_syscall_hook_manager_exit();
 #else
     ksu_sucompat_exit();
@@ -176,14 +187,14 @@ int __init kernelsu_init(void)
     // manually ifdef in there...
 #ifdef MODULE
     #if defined(__x86_64__) 
-        pr_info("Initialized with driver version: %u, full_version: %s, ABI: x86-64, Work mode: LKM, ksu_uapi_version: %d\n", KSU_VERSION, KSU_VERSION_FULL, KERNEL_SU_UAPI_VERSION);
+        pr_info("Initialized with driver version: %u, full_version: %s, ABI: x86-64, Work mode: LKM\n", KSU_VERSION, KSU_VERSION_FULL);
     #elif defined(CONFIG_ARM64)
-        pr_info("Initialized with driver version: %u, full_version: %s, ABI: aarch64, Work mode: LKM, ksu_uapi_version: %d\n", KSU_VERSION, KSU_VERSION_FULL, KERNEL_SU_UAPI_VERSION);
+        pr_info("Initialized with driver version: %u, full_version: %s, ABI: aarch64, Work mode: LKM\n", KSU_VERSION, KSU_VERSION_FULL);
     #else
         #error Unsupported arch!
     #endif
 #else
-    pr_info("Initialized with driver version: %u, full_version: %s, ABI: %s, Work mode: Built-in, ksu_uapi_version: %d\n", KSU_VERSION, KSU_VERSION_FULL, UTS_MACHINE, KERNEL_SU_UAPI_VERSION);
+    pr_info("Initialized with driver version: %u, full_version: %s, ABI: %s, Work mode: Built-in\n", KSU_VERSION, KSU_VERSION_FULL, UTS_MACHINE);
 #endif
     // clang-format on
 
@@ -237,10 +248,14 @@ int __init kernelsu_init(void)
     ksu_init_symbol_resolver();
     ksu_selinux_init();
     ksu_feature_init();
+    ksu_su_request_init();
     ksu_sulog_init();
+    ksu_veil_init();
     ksu_adb_root_init();
     ksu_selinux_hide_init();
+    ksu_selinux_mode_init();
     ksu_shell_su_adb_only_init();
+    ksu_root_gate_init();
 
     ksu_supercalls_init();
     ksu_app_profile_init();
@@ -284,7 +299,7 @@ int __init kernelsu_init(void)
     } else {
         ksu_hook_init();
 
-        ksu_module_blacklist_init(ksu_block_modules);
+        ksu_module_load_filter_hook_init();
 
         ksu_allowlist_init();
 
@@ -310,7 +325,6 @@ void __exit kernelsu_exit(void)
     // Phase 1: Stop all hooks first to prevent new callbacks
     ksu_hook_exit();
     ksu_supercalls_exit();
-
     if (!ksu_late_loaded) {
         ksu_ksud_exit();
         ksu_preinit_exit();
@@ -329,9 +343,12 @@ void __exit kernelsu_exit(void)
     ksu_shell_su_adb_only_exit();
     ksu_selinux_hide_exit();
     ksu_adb_root_exit();
+    ksu_selinux_mode_exit();
+    ksu_veil_exit();
+    ksu_su_request_exit();
     ksu_sulog_exit();
     ksu_feature_exit();
-    ksu_module_blacklist_exit();
+    ksu_module_load_filter_hook_exit();
 
     put_cred(ksu_cred);
 }
