@@ -126,6 +126,7 @@ KDIR := $(KDIR)
 GIT_BIN := /usr/bin/env PATH="$$PATH":/usr/bin:/usr/local/bin git
 
 KSU_SRC := $(abspath $(srctree)/drivers/kernelsu)
+ccflags-y += -I$(KSU_SRC)
 
 
 ifdef KBUILD_EXTMOD
