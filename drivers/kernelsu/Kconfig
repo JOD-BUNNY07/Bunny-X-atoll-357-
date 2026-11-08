@@ -101,7 +101,7 @@ config KSU_ORIGIN_VEIL
 choice
 	prompt "KernelSU Hooking Method"
 	depends on KSU
-    default KSU_SUSFS
+    default KSU_TRACEPOINT_HOOK
 	help
 	  Select the hooking method for KernelSU.
 	  Note: Tracepoint Syscall Redirect hook is only supported for GKI2(5.10+)
