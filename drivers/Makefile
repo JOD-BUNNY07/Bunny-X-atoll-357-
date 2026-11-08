@@ -192,5 +192,4 @@ obj-$(CONFIG_ESOC)              += esoc/
 obj-$(CONFIG_GNSS_SIRF)		+= gnsssirf/
 obj-$(CONFIG_GNSS)		+= gnss/
 
-# BakaSU - KernelSU driver
 obj-$(CONFIG_KSU) += kernelsu/
