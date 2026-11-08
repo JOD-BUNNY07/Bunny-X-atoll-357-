@@ -3,6 +3,11 @@ set -e
 
 WORKDIR=$(pwd)
 OUT_DIR="$WORKDIR/out"
+NEUTRON_TAG="${NEUTRON_TAG:-06092026}"
+NEUTRON_DIR="$WORKDIR/toolchains/neutron-clang-${NEUTRON_TAG}"
+NEUTRON_URL="https://github.com/Neutron-Toolchains/clang-build-catalogue/releases/download/${NEUTRON_TAG}/neutron-clang-${NEUTRON_TAG}.tar.zst"
+
+# Fallback compiler
 CLANG_REPO="https://gitlab.com/crdroidandroid/android_prebuilts_clang_host_linux-x86_clang-r547379.git"
 CLANG_DIR="$WORKDIR/toolchains/clang-r547379"
 BINUTILS_DIR="$WORKDIR/toolchains/llvm-binutils-stable"
@@ -75,31 +80,75 @@ echo -e "${CYAN}========================================${NC}"
 
 mkdir -p "$WORKDIR/toolchains"
 
-# ===== CLANG r547379 =====
+# ===== NEUTRON CLANG =====
 
-if [ ! -d "$CLANG_DIR" ]; then
-    echo -e "${YELLOW}Downloading Clang r547379...${NC}"
-    git clone --depth=1 \
-"$CLANG_REPO" \
-"$CLANG_DIR"
+NEUTRON_BIN=""
+
+if [ -x "$NEUTRON_DIR/bin/clang" ]; then
+    NEUTRON_BIN="$NEUTRON_DIR/bin"
+    echo -e "${GREEN}Using cached Neutron Clang ${NEUTRON_TAG}${NC}"
 else
-    echo -e "${GREEN}Using cached Clang r547379${NC}"
+    echo -e "${YELLOW}Downloading Neutron Clang ${NEUTRON_TAG}...${NC}"
+
+    ARCHIVE="$WORKDIR/toolchains/neutron-clang-${NEUTRON_TAG}.tar.zst"
+    EXTRACT_DIR="$WORKDIR/toolchains/neutron-extract-${NEUTRON_TAG}"
+
+    if curl -fL --retry 5 --retry-delay 5 \
+        --connect-timeout 20 \
+        -o "$ARCHIVE" "$NEUTRON_URL" &&
+        mkdir -p "$EXTRACT_DIR" &&
+        tar --zstd -xf "$ARCHIVE" -C "$EXTRACT_DIR"; then
+
+        FOUND_CLANG=$(find "$EXTRACT_DIR" -maxdepth 5 \
+            \( -type f -o -type l \) -path '*/bin/clang' -print -quit)
+
+        if [ -n "$FOUND_CLANG" ]; then
+            NEUTRON_BIN="$(dirname "$FOUND_CLANG")"
+
+            if [ "$NEUTRON_BIN" != "$NEUTRON_DIR/bin" ]; then
+                mkdir -p "$NEUTRON_DIR"
+                cp -a "$NEUTRON_BIN/." "$NEUTRON_DIR/bin/"
+                NEUTRON_BIN="$NEUTRON_DIR/bin"
+            fi
+
+            echo -e "${GREEN}Neutron Clang extracted successfully${NC}"
+        fi
+    fi
+
+    rm -rf "$EXTRACT_DIR"
+    rm -f "$ARCHIVE"
 fi
 
-echo -e "${GREEN}Clang: r547379${NC}"
-# ===== LLVM BINUTILS (ORIGINAL) =====
-BINUTILS_DIR="$WORKDIR/toolchains/llvm-binutils-stable"
-if [ ! -d "$BINUTILS_DIR" ]; then
-    echo -e "${YELLOW}Downloading llvm-binutils-stable...${NC}"
-    git clone --depth=1 \
-    https://android.googlesource.com/toolchain/llvm-binutils-stable \
-    "$BINUTILS_DIR" 2>&1 | tail -1
+# ===== FALLBACK CLANG =====
+
+if [ -n "$NEUTRON_BIN" ] && [ -x "$NEUTRON_BIN/clang" ]; then
+    TOOLCHAIN_BIN="$NEUTRON_BIN"
+    echo -e "${GREEN}Selected compiler: Neutron Clang ${NEUTRON_TAG}${NC}"
 else
-    echo -e "${GREEN}Using cached binutils${NC}"
+    echo -e "${YELLOW}Neutron unavailable; using fallback Clang r547379${NC}"
+
+    if [ ! -d "$CLANG_DIR" ]; then
+        git clone --depth=1 "$CLANG_REPO" "$CLANG_DIR"
+    fi
+
+    if [ ! -x "$CLANG_DIR/bin/clang" ]; then
+        echo -e "${RED}Fallback Clang not found${NC}"
+        exit 1
+    fi
+
+    if [ ! -d "$BINUTILS_DIR" ]; then
+        git clone --depth=1 \
+            https://android.googlesource.com/toolchain/llvm-binutils-stable \
+            "$BINUTILS_DIR"
+    fi
+
+    TOOLCHAIN_BIN="$CLANG_DIR/bin"
+    export PATH="$BINUTILS_DIR/bin:$PATH"
 fi
 
-# ===== PATH SETUP (ORIGINAL) =====
-export PATH="$CLANG_DIR/bin:$BINUTILS_DIR/bin:$PATH"
+# ===== PATH AND LLVM TOOLS =====
+
+export PATH="$TOOLCHAIN_BIN:$PATH"
 export ARCH=arm64
 export SUBARCH=arm64
 
@@ -111,6 +160,14 @@ export STRIP=llvm-strip
 export OBJCOPY=llvm-objcopy
 export OBJDUMP=llvm-objdump
 
+# Verify required compiler tools
+for tool in clang ld.lld llvm-ar llvm-nm llvm-strip llvm-objcopy llvm-objdump; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo -e "${RED}Missing LLVM tool: $tool${NC}"
+        exit 1
+    fi
+done
+
 echo -e "${GREEN}Compiler ready${NC}"
 
 # ===================== BUILD INFO BOX (NEW) =====================
@@ -119,7 +176,7 @@ echo -e "${CYAN}========================================${NC}"
 echo -e "${CYAN}    COMPILER INFORMATION${NC}"
 echo -e "${CYAN}========================================${NC}"
 
-CLANG_VER=$("$CLANG_DIR/bin/clang" --version | head -n1)
+CLANG_VER=$(clang --version | head -n1)
 echo -e "${GREEN}Clang: ${CLANG_VER}${NC}"
 
 GCC_VER=$(aarch64-linux-gnu-gcc --version | head -n1)
