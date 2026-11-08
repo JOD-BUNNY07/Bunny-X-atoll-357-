@@ -35,9 +35,11 @@ static inline int __must_check ksu_kref_get_unless_zero(struct kref *kref)
 #include "klog.h" // IWYU pragma: keep
 #include "ksu.h"
 #include "feature/kernel_umount.h"
+#include "feature/veil.h"
 #include "runtime/ksud_boot.h"
 #include "selinux/selinux.h"
 #include "policy/allowlist.h"
+#include "feature/root_gate.h"
 #include "manager/manager_identity.h"
 #include "infra/su_mount_ns.h"
 #include "feature/shell_su_adb_only.h"
@@ -89,18 +91,6 @@ static u16 allow_list_count = 0;
 #define KERNEL_SU_ALLOWLIST "/data/adb/ksu/.allowlist"
 
 void ksu_persistent_allow_list(void);
-
-void ksu_show_allow_list(void)
-{
-    int i;
-    struct perm_data *p = NULL;
-    pr_info("ksu_show_allow_list\n");
-    rcu_read_lock();
-    hash_for_each_rcu (allow_list, i, p, list) {
-        pr_info("uid :%d, allow: %d\n", p->profile.curr_uid, p->profile.allow_su);
-    }
-    rcu_read_unlock();
-}
 
 struct app_profile *ksu_get_app_profile(uid_t uid)
 {
@@ -283,6 +273,12 @@ bool __ksu_is_allow_uid(uid_t uid)
         return true;
     }
 
+    // Root Gate suspends every other grant; the manager and ksu domain
+    // processes (ksud runs there) must keep working so root can be resumed.
+    if (unlikely(!ksu_root_gate_allows()) && !is_ksu_domain()) {
+        return false;
+    }
+
     if (unlikely(allow_shell) && uid == SHELL_UID) {
         return true;
     }
@@ -324,6 +320,11 @@ bool ksu_uid_should_umount(uid_t uid)
     if (unlikely(ksu_is_manager_uid(uid))) {
         // we should not umount on manager!
         return false;
+    }
+    if (ksu_veil_is_cloaked(uid)) {
+        // Origin Veil: cloaked apps always lose module mounts,
+        // regardless of the global umount toggle or app profile.
+        return true;
     }
 #ifdef CONFIG_KSU_DISABLE_POLICY
     return !__ksu_is_allow_uid(uid);
@@ -491,9 +492,6 @@ void do_persistent_allow_list(void *unused)
 
     mutex_lock(&allowlist_mutex);
     hash_for_each (allow_list, i, p, list) {
-        pr_info("save allow list, name: %s uid :%d, allow: %d\n", p->profile.key, p->profile.curr_uid,
-                p->profile.allow_su);
-
         ksu_kernel_write_compat(fp, &p->profile, sizeof(p->profile), &off);
     }
     mutex_unlock(&allowlist_mutex);
@@ -558,7 +556,6 @@ void do_ksu_load_allow_list(void *unused)
         pr_info("load_allow_uid, name: %s, uid: %d, allow: %d\n", profile.key, profile.curr_uid, profile.allow_su);
         ksu_set_app_profile(&profile);
     }
-    ksu_show_allow_list();
     filp_close(fp, 0);
     revert_creds(saved);
     if (version < KSU_APP_PROFILE_VER)
@@ -566,7 +563,6 @@ void do_ksu_load_allow_list(void *unused)
     return;
 
 exit:
-    ksu_show_allow_list();
     filp_close(fp, 0);
 revert_creds:
     revert_creds(saved);
@@ -606,7 +602,6 @@ void ksu_prune_allowlist(bool (*is_uid_valid)(uid_t, char *, void *), void *data
         bool is_preserved_uid = uid == KSU_APP_PROFILE_PRESERVE_UID;
         if (!is_preserved_uid && !is_uid_valid(uid, package, data)) {
             modified = true;
-            pr_info("prune uid: %d, package: %s\n", uid, package);
             hlist_del_rcu(&np->list);
             put_perm_data(np);
             --allow_list_count;

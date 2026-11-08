@@ -4,6 +4,7 @@
 #include <linux/version.h>
 #include <linux/vmalloc.h>
 #include <linux/mutex.h>
+#include <linux/sizes.h>
 
 #include "ss/avtab.h"
 #include "ss/constraint.h"
@@ -17,11 +18,6 @@
 #include "klog.h" // IWYU pragma: keep
 #include "ss/symtab.h"
 #include "compat/kernel_compat.h" // Add check Huawei Device
-
-#ifdef CONFIG_KSU_SUSFS
-extern int susfs_add_sus_avd_allowed_by_type(u32 s_type, u32 t_type, u32 c_type, u32 orig_avd_allowed);
-extern int susfs_add_sus_type(const char *secctx, u32 type_value);
-#endif // #ifdef CONFIG_KSU_SUSFS
 
 #define KSU_SUPPORT_ADD_TYPE
 
@@ -342,10 +338,6 @@ static bool add_rule_raw(struct policydb *db, struct type_datum *src, struct typ
             if (!node)
                 return false;
         }
-
-#ifdef CONFIG_KSU_SUSFS
-        susfs_add_sus_avd_allowed_by_type(src->value, tgt->value, cls->value, node->datum.u.data);
-#endif // #ifdef CONFIG_KSU_SUSFS
 
         if (invert) {
             if (perm)
@@ -770,9 +762,6 @@ static bool add_type(struct policydb *db, const char *type_name, bool attr)
         ebitmap_set_bit(&db->role_val_to_struct[i]->types, value - 1, 1);
     }
 
-#ifdef CONFIG_KSU_SUSFS
-    susfs_add_sus_type(type_name, type->value);
-#endif // #ifdef CONFIG_KSU_SUSFS
     return true;
 
     // safe? because only huawei do this fucking things
@@ -1270,3 +1259,79 @@ out:
     return ERR_PTR(ret);
 }
 #endif
+
+#define KSU_SEPOL_SYNC_MAX_BUF SZ_64M
+#define KSU_SEPOL_SYNC_SLACK SZ_256K
+#define KSU_SEPOL_SYNC_MAX_TRIES 4
+
+/*
+ * Serialize the unpublished policydb and store the real size in
+ * policydb.len, which selinuxfs uses to size the policy read buffer.
+ * On failure db->len is left untouched.
+ */
+static int ksu_policydb_sync_len(struct policydb *db, const char *tag)
+{
+    const size_t tracked = db->len;
+    unsigned int attempt = 0;
+    size_t cap;
+    int ret = -EINVAL;
+
+    if (tracked + KSU_SEPOL_SYNC_SLACK > KSU_SEPOL_SYNC_MAX_BUF) {
+        pr_err("sepolicy: [%s] policydb.len %zu is too large to measure\n", tag, tracked);
+        return -E2BIG;
+    }
+
+    cap = tracked + KSU_SEPOL_SYNC_SLACK;
+
+    while (attempt < KSU_SEPOL_SYNC_MAX_TRIES && cap <= KSU_SEPOL_SYNC_MAX_BUF) {
+        struct policy_file fp;
+        size_t remaining;
+        void *buf = vmalloc(cap);
+
+        if (!buf) {
+            pr_err("sepolicy: [%s] vmalloc(%zu) failed\n", tag, cap);
+            return -ENOMEM;
+        }
+
+        attempt++;
+        fp.data = buf;
+        fp.len = cap;
+        ret = policydb_write(db, &fp);
+        remaining = fp.len;
+        vfree(buf);
+
+        if (!ret) {
+            const size_t actual = cap - remaining;
+
+            ksu_dbg("sepolicy: [%s] len tracked=%zu actual=%zu delta=%zd attempts=%u buf=%zu\n", tag, tracked, actual,
+                    (ssize_t)actual - (ssize_t)tracked, attempt, cap);
+            db->len = actual;
+            return 0;
+        }
+
+        /* put_entry() returns -EINVAL when the buffer is exhausted */
+        if (ret != -EINVAL) {
+            pr_err("sepolicy: [%s] policydb_write failed: %d\n", tag, ret);
+            return ret;
+        }
+
+        ksu_dbg("sepolicy: [%s] buffer %zu too small (attempt %u)\n", tag, cap, attempt);
+        cap *= 2;
+    }
+
+    pr_err("sepolicy: [%s] giving up after %u attempts (tracked=%zu): %d\n", tag, attempt, tracked, ret);
+    return ret;
+}
+
+/* Best effort: if measuring fails, pad policydb.len instead. */
+int ksu_policydb_fixup_len(struct policydb *db, const char *tag)
+{
+    int ret = ksu_policydb_sync_len(db, tag);
+
+    if (ret) {
+        db->len += KSU_SEPOL_SYNC_SLACK;
+        pr_warn("sepolicy: [%s] could not measure policydb (%d), padded policydb.len by %zu to %zu\n", tag, ret,
+                (size_t)KSU_SEPOL_SYNC_SLACK, (size_t)db->len);
+    }
+    return ret;
+}

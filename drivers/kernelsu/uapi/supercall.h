@@ -7,6 +7,7 @@
 #include "uapi/app_profile.h"
 #include "uapi/feature.h"
 #include "uapi/selinux.h"
+#include "uapi/su_request.h"
 
 #define DEFINE_KSU_UAPI_CONST(type, name, val) \
     enum { name = (val) }; \
@@ -17,7 +18,8 @@
 // 2: allowlist v4 root profile flags
 // 3: scoped su-session driver fd
 // 4: add KSU_GET_INFO_FLAG_BUNDLED
-// 5: add EVENT_SERVICES with a start/skip result
+// 5: blocking su request prompt (poll/answer ioctls + prompt features)
+// 5: add EVENT_SERVICES with a start/skip result (upstream, shares version 5)
 // 6: add KSU_IOCTL_LOOKUP_SYMBOLS and KSU_GET_INFO_FLAG_PREINIT; modules.rc and preinit may live under /metadata/vold/ksu
 static const __u32 KERNEL_SU_UAPI_VERSION = 6;
 
@@ -39,6 +41,7 @@ DEFINE_KSU_UAPI_CONST(__u32, KSU_GET_INFO_FLAG_MANAGER, (1U << 1))
 DEFINE_KSU_UAPI_CONST(__u32, KSU_GET_INFO_FLAG_LATE_LOAD, (1U << 2))
 DEFINE_KSU_UAPI_CONST(__u32, KSU_GET_INFO_FLAG_PR_BUILD, (1U << 3))
 DEFINE_KSU_UAPI_CONST(__u32, KSU_GET_INFO_FLAG_BUNDLED, (1U << 4))
+/* The preinit runner will run module preinit actions on boot */
 DEFINE_KSU_UAPI_CONST(__u32, KSU_GET_INFO_FLAG_PREINIT, (1U << 5))
 
 struct ksu_get_info_cmd {
@@ -157,6 +160,71 @@ struct ksu_get_sulog_fd_cmd {
     __u32 flags; /* Input: reserved for future use, must be 0 */
 };
 
+struct ksu_lookup_symbols_cmd {
+    __aligned_u64 names; /* Input: user pointer to `count` user pointers to null-terminated names */
+    __aligned_u64 addrs; /* Output: user pointer to `count` __u64 symbol addresses */
+    __u32 count; /* Input: number of symbols, at most KSU_LOOKUP_SYMBOLS_MAX */
+    __u32 flags; /* Input: reserved for future use, must be 0 */
+};
+
+DEFINE_KSU_UAPI_CONST(__u32, KSU_LOOKUP_SYMBOLS_MAX, 1024)
+
+struct ksu_get_veil2_fd_cmd {
+    __u32 version; /* Input: KSU_VEIL2_ABI_VERSION */
+    __u32 flags; /* Input: reserved for future use, must be 0 */
+};
+
+enum ksu_veil2_control_op {
+    KSU_VEIL2_OP_ADD = 0, /* cloak uid */
+    KSU_VEIL2_OP_REMOVE = 1, /* uncloak uid */
+    KSU_VEIL2_OP_QUERY = 2, /* is uid cloaked? -> value */
+    KSU_VEIL2_OP_LIST = 3, /* fill uids[] with cloaked uids */
+    KSU_VEIL2_OP_CLEAR = 4, /* uncloak everything */
+    KSU_VEIL2_OP_SET_AUTO = 5, /* value: 0/1 auto-cloak on probe */
+    KSU_VEIL2_OP_GET_AUTO = 6, /* -> value */
+    KSU_VEIL2_OP_GET_STATS = 7, /* fill struct ksu_veil2_stats */
+};
+
+struct ksu_veil2_stats {
+    __u32 cloaked; /* current cloak-set size */
+    __u32 history; /* current per-uid history size */
+    __u32 probes; /* probe reports accepted since boot */
+    __u32 suppressed; /* reports coalesced by the burst limiter */
+    __u32 history_dropped; /* history entries evicted / not stored */
+    __u32 queue_dropped; /* events dropped by the fd queue */
+    __u32 kprobes; /* currently armed probe hooks */
+    __u32 auto_cloak; /* current auto-cloak setting */
+};
+
+struct ksu_veil2_control_cmd {
+    __u32 version; /* Input: KSU_VEIL2_ABI_VERSION */
+    __u32 op; /* enum ksu_veil2_control_op */
+    __u32 uid; /* ADD/REMOVE/QUERY */
+    __u32 value; /* in: SET_AUTO value; out: QUERY/GET_AUTO result */
+    __u32 count; /* LIST: in=capacity of uids[], out=number cloaked */
+    __u32 reserved; /* must be 0 */
+    __aligned_u64 uids; /* LIST: user ptr to __u32[count] */
+    __aligned_u64 stats; /* GET_STATS: user ptr to struct ksu_veil2_stats */
+};
+
+/* Persistent per-uid probe history (survives until reboot). */
+struct ksu_veil2_hist_entry {
+    __u32 uid;
+    __u32 count; /* total probes by this uid */
+    __u32 kinds; /* bitmap: bit (kind-1) per enum ksu_veil2_probe */
+    __u32 flags; /* reserved for future use, currently 0 */
+    __u64 first_ns; /* first probe observed this boot */
+    __u64 last_ns; /* most recent probe observed this boot */
+};
+
+struct ksu_veil2_history_cmd {
+    __u32 version; /* Input: KSU_VEIL2_ABI_VERSION */
+    __u32 op; /* 0 = dump, 1 = clear */
+    __u32 count; /* in: capacity of entries[]; out: total available */
+    __u32 reserved; /* must be 0 */
+    __aligned_u64 entries; /* user ptr to struct ksu_veil2_hist_entry[count] */
+};
+
 struct ksu_manage_try_umount_cmd {
     __aligned_u64 arg; /* char ptr, this is the mountpoint */
     __u32 flags; /* this is the flag we use for it */
@@ -174,22 +242,6 @@ DEFINE_KSU_UAPI_CONST(__u8, KSU_UMOUNT_GETLIST_LEGACY, 108) // get list (legacy)
 DEFINE_KSU_UAPI_CONST(__u8, KSU_UMOUNT_GETSIZE_NEW, 200) // get list size (new (with flags))
 DEFINE_KSU_UAPI_CONST(__u8, KSU_UMOUNT_GETLIST_NEW, 201) // get list (new (with flags))
 
-/*
- * Batch kernel image symbol lookup. Returns the number of symbols found; the
- * address of a symbol that does not exist in the running kernel is set to 0.
- * Matches like ksuinit's /proc/kallsyms walk: a kernel symbol name is cut at
- * its first '$', else at ".llvm.", and the first match in kallsyms order wins.
- * Module symbols are never returned.
- */
-struct ksu_lookup_symbols_cmd {
-    __aligned_u64 names; /* Input: user pointer to `count` user pointers to null-terminated names */
-    __aligned_u64 addrs; /* Output: user pointer to `count` __u64 symbol addresses */
-    __u32 count; /* Input: number of symbols, at most KSU_LOOKUP_SYMBOLS_MAX */
-    __u32 flags; /* Input: reserved for future use, must be 0 */
-};
-
-DEFINE_KSU_UAPI_CONST(__u32, KSU_LOOKUP_SYMBOLS_MAX, 1024)
-
 // Downstream supercall struct
 struct ksu_get_full_version_cmd {
     char version_full[KSU_FULL_VERSION_STRING]; // Output: full version string
@@ -197,6 +249,10 @@ struct ksu_get_full_version_cmd {
 
 struct ksu_hook_type_cmd {
     char hook_type[32]; // Output: hook type string
+};
+
+struct ksu_enable_kpm_cmd {
+    __u8 enabled; // Output: true if KPM is enabled
 };
 
 DEFINE_KSU_UAPI_CONST(__u8, DYNAMIC_MANAGER_OP_SET, 0)
@@ -219,6 +275,21 @@ struct ksu_get_managers_cmd {
     __u16 count; // Input / Output: number of managers in array
     __u16 total_count; // Output: total number of managers in requested list
     struct ksu_manager_entry managers[]; // Output: Array of active manager
+} __attribute__((packed));
+
+DEFINE_KSU_UAPI_CONST(__u8, KSU_KPM_LOAD, 1)
+DEFINE_KSU_UAPI_CONST(__u8, KSU_KPM_UNLOAD, 2)
+DEFINE_KSU_UAPI_CONST(__u8, KSU_KPM_NUM, 3)
+DEFINE_KSU_UAPI_CONST(__u8, KSU_KPM_LIST, 4)
+DEFINE_KSU_UAPI_CONST(__u8, KSU_KPM_INFO, 5)
+DEFINE_KSU_UAPI_CONST(__u8, KSU_KPM_CONTROL, 6)
+DEFINE_KSU_UAPI_CONST(__u8, KSU_KPM_VERSION, 7)
+
+struct ksu_kpm_cmd {
+    __u8 control_code;
+    __aligned_u64 arg1;
+    __aligned_u64 arg2;
+    __aligned_u64 result_code;
 } __attribute__((packed));
 
 DEFINE_KSU_UAPI_CONST(__u8, KERNEL_PATCH_NOT_FOUND, 0)
@@ -258,16 +329,22 @@ DEFINE_KSU_UAPI_CONST(__u32, KSU_IOCTL_MANAGE_TRY_UMOUNT, _IOC(_IOC_WRITE, 'K', 
 DEFINE_KSU_UAPI_CONST(__u32, KSU_IOCTL_SET_INIT_PGRP, _IO('K', 19))
 DEFINE_KSU_UAPI_CONST(__u32, KSU_IOCTL_GET_SULOG_FD, _IOW('K', 20, struct ksu_get_sulog_fd_cmd))
 DEFINE_KSU_UAPI_CONST(__u32, KSU_IOCTL_DISABLE_ESCAPE_TO_ROOT, _IO('K', 21))
-DEFINE_KSU_UAPI_CONST(__u32, KSU_IOCTL_LOOKUP_SYMBOLS, _IOW('K', 22, struct ksu_lookup_symbols_cmd))
+DEFINE_KSU_UAPI_CONST(__u32, KSU_IOCTL_SU_REQUEST_POLL, _IOC(_IOC_READ | _IOC_WRITE, 'K', 25, 0))
+DEFINE_KSU_UAPI_CONST(__u32, KSU_IOCTL_SU_REQUEST_ANSWER, _IOC(_IOC_WRITE, 'K', 26, 0))
+DEFINE_KSU_UAPI_CONST(__u32, KSU_IOCTL_LOOKUP_SYMBOLS, _IOW('K', 27, struct ksu_lookup_symbols_cmd))
+DEFINE_KSU_UAPI_CONST(__u32, KSU_IOCTL_VEIL2_GET_FD, _IOW('K', 28, struct ksu_get_veil2_fd_cmd))
+DEFINE_KSU_UAPI_CONST(__u32, KSU_IOCTL_VEIL2_CONTROL, _IOC(_IOC_READ | _IOC_WRITE, 'K', 29, 0))
+DEFINE_KSU_UAPI_CONST(__u32, KSU_IOCTL_VEIL2_HISTORY, _IOC(_IOC_READ | _IOC_WRITE, 'K', 30, 0))
 
 // Downstream add IOCTL command definitions
 DEFINE_KSU_UAPI_CONST(__u32, KSU_IOCTL_GET_FULL_VERSION, _IOC(_IOC_READ, 'K', 100, 0))
 DEFINE_KSU_UAPI_CONST(__u32, KSU_IOCTL_HOOK_TYPE, _IOC(_IOC_READ, 'K', 101, 0))
-// 102 = ENABLE_KPM (KernelPatch Module),deprecated
+DEFINE_KSU_UAPI_CONST(__u32, KSU_IOCTL_ENABLE_KPM, _IOC(_IOC_READ, 'K', 102, 0))
 DEFINE_KSU_UAPI_CONST(__u32, KSU_IOCTL_DYNAMIC_MANAGER, _IOC(_IOC_READ | _IOC_WRITE, 'K', 103, 0))
 // 104 = old get_managers, deprecated
 DEFINE_KSU_UAPI_CONST(__u32, KSU_IOCTL_GET_MANAGERS, _IOC(_IOC_READ | _IOC_WRITE, 'K', 105, 0))
 DEFINE_KSU_UAPI_CONST(__u32, KSU_IOCTL_GET_KERNEL_PATCH_IMPLEMENT, _IOC(_IOC_READ, 'K', 106, 0))
-// 200 = MANAGE_KPM,deprecated
+DEFINE_KSU_UAPI_CONST(__u32, KSU_IOCTL_KPM, _IOC(_IOC_READ | _IOC_WRITE, 'K', 200, 0))
+
 #undef DEFINE_KSU_UAPI_CONST
 #endif

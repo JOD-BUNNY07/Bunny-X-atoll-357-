@@ -78,6 +78,27 @@ struct ksu_sulog_identity {
     __u32 euid;
 };
 
+static const char __user *ksu_sulog_get_user_arg_ptr(struct user_arg_ptr argv, int nr)
+{
+    const char __user *native;
+
+#ifdef CONFIG_COMPAT
+    if (unlikely(argv.is_compat)) {
+        compat_uptr_t compat;
+
+        if (get_user(compat, argv.ptr.compat + nr))
+            return ERR_PTR(-EFAULT);
+
+        return compat_ptr(compat);
+    }
+#endif
+
+    if (get_user(native, argv.ptr.native + nr))
+        return ERR_PTR(-EFAULT);
+
+    return native;
+}
+
 static void ksu_sulog_fill_task_info(struct ksu_sulog_event *event, __u16 event_type, int retval)
 {
     event->version = KSU_SULOG_EVENT_VERSION;
@@ -148,7 +169,7 @@ static __u32 ksu_sulog_flatten_argv(struct user_arg_ptr argv, char *dst, __u32 d
         if (fatal_signal_pending(current))
             break;
 
-        arg_user = get_user_arg_ptr(argv, i);
+        arg_user = ksu_sulog_get_user_arg_ptr(argv, i);
         if (!arg_user)
             break;
         if (IS_ERR(arg_user))
@@ -266,7 +287,24 @@ out_drop:
     return NULL;
 }
 
-#ifdef CONFIG_KSU_TRACEPOINT_HOOK
+static struct user_arg_ptr ksu_sulog_user_argv(const char __user *const __user *argv_user)
+{
+    struct user_arg_ptr argv;
+
+#ifdef CONFIG_COMPAT
+    if (unlikely(in_compat_syscall())) {
+        argv.is_compat = true;
+        argv.ptr.compat = (const compat_uptr_t __user *)argv_user;
+        return argv;
+    }
+
+    argv.is_compat = false;
+#endif
+    argv.ptr.native = argv_user;
+    return argv;
+}
+
+#if defined(CONFIG_KSU_TRACEPOINT_HOOK) || defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
 // Tracepoint Syscall Redirect hook
 
 static inline struct ksu_sulog_pending_event *ksu_sulog_capture_tracepoint(__u16 event_type,
@@ -283,7 +321,7 @@ static inline struct ksu_sulog_pending_event *ksu_sulog_capture_tracepoint(__u16
 
     // copy filename, prepare use argv
     filename_len = ksu_sulog_copy_filename(filename_user, filename_buf, KSU_SULOG_MAX_FILENAME_LEN);
-    struct user_arg_ptr argv = ksu_take_user_argv(argv_user);
+    struct user_arg_ptr argv = ksu_sulog_user_argv(argv_user);
 
     // submit to common
     return ksu_sulog_capture_common(event_type, filename_buf, filename_len, argv, gfp);
@@ -323,7 +361,7 @@ static struct ksu_sulog_pending_event *ksu_sulog_capture_grant_root(const struct
     struct ksu_sulog_pending_event *pending;
     struct ksu_sulog_event *event;
 
-    pending = ksu_sulog_capture_common(KSU_SULOG_EVENT_IOCTL_GRANT_ROOT, NULL, 0, ksu_take_user_argv(NULL), gfp);
+    pending = ksu_sulog_capture_common(KSU_SULOG_EVENT_IOCTL_GRANT_ROOT, NULL, 0, ksu_sulog_user_argv(NULL), gfp);
     if (!pending)
         return NULL;
 

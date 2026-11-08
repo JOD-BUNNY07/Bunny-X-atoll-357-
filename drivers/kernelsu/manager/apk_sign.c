@@ -32,9 +32,13 @@ struct sdesc {
 };
 
 static apk_sign_key_t apk_sign_keys[] = {
-    { EXPECTED_SIZE_BAKASU, EXPECTED_HASH_BAKASU }, /* Baka-SU/BakaSU */
+    { EXPECTED_SIZE_ORIGINSU, EXPECTED_HASH_ORIGINSU }, /* OriginSU/OriginSU */
 #ifdef CONFIG_KSU_MULTI_MANAGER_SUPPORT
+    { EXPECTED_SIZE_RESUKISU, EXPECTED_HASH_RESUKISU }, /* ReSukiSU/ReSukiSU */
     { EXPECTED_SIZE_OFFICIAL, EXPECTED_HASH_OFFICIAL }, // tiann/KernelSU
+    { EXPECTED_SIZE_5EC1CFF, EXPECTED_HASH_5EC1CFF }, // 5ec1cff/KernelSU
+    { EXPECTED_SIZE_RSUNTK, EXPECTED_HASH_RSUNTK }, // rsuntk/KernelSU
+    { EXPECTED_SIZE_SUKISU, EXPECTED_HASH_SUKISU }, // SukiSU-Ultra/SukiSU-Ultra
     { EXPECTED_SIZE_KOWX712, EXPECTED_HASH_KOWX712 }, // KOWX712/KernelSU
 #ifdef EXPECTED_SIZE
     { EXPECTED_SIZE, EXPECTED_HASH }, // Custom
@@ -134,19 +138,28 @@ static bool check_block(struct file *fp, loff_t *pos, loff_t block_end, u8 *matc
     if (certificate_size > INT_MAX || certificate_size > (u64)(certificates_end - *pos))
         return false;
 
-#define CERT_MAX_LENGTH 1024
+#define CERT_MAX_LENGTH 2048
+    // 2048 covers 4096-bit RSA certs (e.g. OriginSU official cert is 0x51c bytes);
+    // 1024-bit/2048-bit certs used by other managers are well below this.
+    // Heap-allocated: a stack array this size would exceed the kernel's
+    // frame-size limit (-Wframe-larger-than).
     if (certificate_size > CERT_MAX_LENGTH) {
         pr_info("cert length overlimit\n");
         return false;
     }
 
-    char cert[CERT_MAX_LENGTH];
-    if (!read_exact(fp, cert, certificate_size, pos, certificates_end))
+    char *cert = kmalloc(CERT_MAX_LENGTH, GFP_KERNEL);
+    if (!cert)
         return false;
+    if (!read_exact(fp, cert, certificate_size, pos, certificates_end)) {
+        kfree(cert);
+        return false;
+    }
 
     unsigned char digest[SHA256_DIGEST_SIZE];
     if (ksu_sha256(cert, certificate_size, digest)) {
         pr_info("sha256 error\n");
+        kfree(cert);
         return false;
     }
 
@@ -179,6 +192,7 @@ static bool check_block(struct file *fp, loff_t *pos, loff_t block_end, u8 *matc
             signature_valid = true;
         }
     }
+    kfree(cert);
     return signature_valid;
 }
 

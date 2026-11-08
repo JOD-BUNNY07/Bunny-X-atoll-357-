@@ -159,7 +159,7 @@ int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user 
     return 0;
 }
 
-#ifdef CONFIG_KSU_TRACEPOINT_HOOK
+#if defined(CONFIG_KSU_TRACEPOINT_HOOK) || defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
 // Reboot hook for installing fd
 static int reboot_handler_pre(struct kprobe *p, struct pt_regs *regs)
 {
@@ -167,10 +167,9 @@ static int reboot_handler_pre(struct kprobe *p, struct pt_regs *regs)
     int magic1 = (int)PT_REGS_SYSCALL_PARM1(real_regs);
     int magic2 = (int)PT_REGS_PARM2(real_regs);
     int cmd = (int)PT_REGS_PARM3(real_regs);
-    void __user *arg = ksu_task_user_ptr(PT_REGS_SYSCALL_PARM4(real_regs));
+    void __user **arg = (void __user **)&PT_REGS_SYSCALL_PARM4(real_regs);
 
-    ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
-    PT_REGS_NATIVE_SYSCALL_PARM4(real_regs) = (unsigned long)arg;
+    ksu_handle_sys_reboot(magic1, magic2, cmd, arg);
     return 0;
 }
 
@@ -186,7 +185,7 @@ void __init ksu_supercalls_init(void)
 
     ksu_supercall_dump_commands();
 
-#ifdef CONFIG_KSU_TRACEPOINT_HOOK
+#if defined(CONFIG_KSU_TRACEPOINT_HOOK) || defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
     rc = register_kprobe(&reboot_kp);
     if (rc) {
         pr_err("reboot kprobe failed: %d\n", rc);
@@ -198,7 +197,7 @@ void __init ksu_supercalls_init(void)
 
 void __exit ksu_supercalls_exit(void)
 {
-#ifdef CONFIG_KSU_TRACEPOINT_HOOK
+#if defined(CONFIG_KSU_TRACEPOINT_HOOK) || defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
     unregister_kprobe(&reboot_kp);
 #endif
     ksu_supercall_cleanup_state();

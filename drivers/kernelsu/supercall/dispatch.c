@@ -1,10 +1,11 @@
 #include <linux/capability.h>
 #include <linux/cred.h>
 #include <linux/kallsyms.h>
-#include <linux/mm.h>
-#include <linux/string.h>
-#include <linux/slab.h>
 #include <linux/kprobes.h>
+#include <linux/mm.h>
+#include <linux/ratelimit.h>
+#include <linux/slab.h>
+#include <linux/string.h>
 #include <linux/syscalls.h>
 #include <linux/uaccess.h>
 #include <linux/version.h>
@@ -12,9 +13,9 @@
 #include <linux/susfs_def.h>
 #endif
 
-#include <linux/vmalloc.h>
 #include <linux/thread_info.h>
 #include "uapi/supercall.h"
+#include "uapi/veil.h"
 #include "supercall/internal.h"
 #include "arch.h"
 #include "policy/allowlist.h"
@@ -22,15 +23,19 @@
 #include "klog.h" // IWYU pragma: keep
 #include "runtime/ksud.h"
 #include "feature/kernel_umount.h"
+#include "feature/veil.h"
 #include "compat/kernel_compat.h"
 #include "manager/manager_identity.h"
 #include "selinux/selinux.h"
 #include "infra/file_wrapper.h"
-#ifdef CONFIG_KSU_TRACEPOINT_HOOK
+#if defined(CONFIG_KSU_TRACEPOINT_HOOK) || defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
 #include "hook/tp_marker.h"
 #endif
 #include "feature/dynamic_manager.h"
 #include "policy/app_profile.h"
+#ifdef CONFIG_KPM
+#include "kpm/kpm.h"
+#endif
 
 #ifdef CONFIG_KSU_TOOLKIT_SUPPORT
 #include <linux/utsname.h> // utsname() and uts_sem
@@ -42,6 +47,8 @@
 #endif
 
 #include "sulog/event.h"
+#include "policy/su_request.h"
+#include "uapi/su_request.h"
 #include "sulog/fd.h"
 #include "supercall/supercall.h"
 #include "infra/symbol_resolver.h"
@@ -50,15 +57,60 @@
 static int do_grant_root(void __user *arg)
 {
     int ret;
-    // we already checked the uid above in allowed_for_su().
     __u32 audit_uid = ksu_get_uid_t(current_uid());
     __u32 audit_euid = ksu_get_uid_t(current_euid());
 
-    pr_info("allow root for: %d\n", audit_uid);
-    ret = escape_with_root_profile();
-    ksu_sulog_emit_grant_root(ret, audit_uid, audit_euid, GFP_KERNEL);
+    /* Fast path: manager or already-allowed uid. */
+    if (is_manager() || ksu_is_allow_uid_for_current(audit_uid)) {
+        pr_info("allow root for: %d\n", audit_uid);
+        ret = escape_with_root_profile();
+        ksu_sulog_emit_grant_root(ret, audit_uid, audit_euid, GFP_KERNEL);
+        return ret;
+    }
 
-    return ret;
+    /* Blocking prompt (Magisk-style): queue + sleep until manager answers. */
+    if (ksu_su_prompt_is_enabled()) {
+        int allowed = ksu_su_request_prompt(audit_uid, audit_euid);
+        if (allowed) {
+            pr_info("allow root for: %d (prompt allow)\n", audit_uid);
+            ret = escape_with_root_profile();
+            ksu_sulog_emit_grant_root(ret, audit_uid, audit_euid, GFP_KERNEL);
+            return ret;
+        }
+        pr_info("deny root for: %d (prompt deny/timeout)\n", audit_uid);
+        ksu_sulog_emit_grant_root(-EPERM, audit_uid, audit_euid, GFP_KERNEL);
+        return -EPERM;
+    }
+
+    pr_info("deny root for: %d (not allowed)\n", audit_uid);
+    ksu_sulog_emit_grant_root(-EPERM, audit_uid, audit_euid, GFP_KERNEL);
+    return -EPERM;
+}
+
+static int do_su_request_poll(void __user *arg)
+{
+    struct ksu_su_request_poll_cmd cmd = { 0 };
+    struct ksu_su_request_info info;
+    int ret = ksu_su_request_poll(&info);
+    if (ret)
+        return ret;
+    cmd.id = info.id;
+    cmd.uid = info.uid;
+    cmd.pid = info.pid;
+    cmd.euid = info.euid;
+    memcpy(cmd.comm, info.comm, sizeof(cmd.comm));
+    cmd.ts_ns = info.ts_ns;
+    if (copy_to_user(arg, &cmd, sizeof(cmd)))
+        return -EFAULT;
+    return 0;
+}
+
+static int do_su_request_answer(void __user *arg)
+{
+    struct ksu_su_request_answer_cmd cmd;
+    if (copy_from_user(&cmd, arg, sizeof(cmd)))
+        return -EFAULT;
+    return ksu_su_request_answer(cmd.id, cmd.decision, cmd.remember);
 }
 
 #ifdef CONFIG_KSU_TOOLKIT_SUPPORT
@@ -85,8 +137,8 @@ static int do_get_info(void __user *arg)
     if (ksu_late_loaded) {
         cmd.flags |= KSU_GET_INFO_FLAG_LATE_LOAD;
     }
-    // preinit can not execute in late_load mode
-    else if (ksu_preinit_enabled_param()) {
+    // A late load never sees PID 1's selinux_setup, so preinit cannot run.
+    if (ksu_preinit_enabled_param() && !ksu_late_loaded) {
         cmd.flags |= KSU_GET_INFO_FLAG_PREINIT;
     }
     cmd.features = KSU_FEATURE_MAX;
@@ -446,7 +498,7 @@ static int do_set_app_profile(void __user *arg)
     ret = ksu_set_app_profile(&cmd.profile);
     if (!ret) {
         ksu_persistent_allow_list();
-#ifdef CONFIG_KSU_TRACEPOINT_HOOK
+#if defined(CONFIG_KSU_TRACEPOINT_HOOK) || defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
         ksu_mark_running_process();
 #endif
     }
@@ -545,7 +597,7 @@ static int do_manage_mark(void __user *arg)
 
     switch (cmd.operation) {
     case KSU_MARK_GET: {
-#if defined(CONFIG_KSU_TRACEPOINT_HOOK)
+#if defined(CONFIG_KSU_TRACEPOINT_HOOK) || defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
         // Get task mark status
         ret = ksu_get_task_mark(cmd.pid);
         if (ret < 0) {
@@ -567,7 +619,7 @@ static int do_manage_mark(void __user *arg)
         break;
     }
     case KSU_MARK_MARK: {
-#ifdef CONFIG_KSU_TRACEPOINT_HOOK
+#if defined(CONFIG_KSU_TRACEPOINT_HOOK) || defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
         if (cmd.pid == 0) {
             ksu_mark_all_process();
         } else {
@@ -585,7 +637,7 @@ static int do_manage_mark(void __user *arg)
         break;
     }
     case KSU_MARK_UNMARK: {
-#ifdef CONFIG_KSU_TRACEPOINT_HOOK
+#if defined(CONFIG_KSU_TRACEPOINT_HOOK) || defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
         if (cmd.pid == 0) {
             ksu_unmark_all_process();
         } else {
@@ -603,7 +655,7 @@ static int do_manage_mark(void __user *arg)
         break;
     }
     case KSU_MARK_REFRESH: {
-#ifdef CONFIG_KSU_TRACEPOINT_HOOK
+#if defined(CONFIG_KSU_TRACEPOINT_HOOK) || defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
         ksu_mark_running_process();
         pr_info("manage_mark: refreshed running processes\n");
 #else
@@ -895,94 +947,167 @@ static int do_get_sulog_fd(void __user *arg)
     return ksu_install_sulog_fd();
 }
 
+static int do_veil2_get_fd(void __user *arg)
+{
+    struct ksu_get_veil2_fd_cmd cmd;
+
+    if (copy_from_user(&cmd, arg, sizeof(cmd))) {
+        pr_err("veil2_get_fd: copy_from_user failed\n");
+        return -EFAULT;
+    }
+
+    if (cmd.version != KSU_VEIL2_ABI_VERSION || cmd.flags) {
+        pr_err("veil2_get_fd: bad version/flags (%u/0x%x)\n", cmd.version, cmd.flags);
+        return -EINVAL;
+    }
+
+    return ksu_install_veil_fd();
+}
+
+static int do_veil2_control(void __user *arg)
+{
+    struct ksu_veil2_control_cmd cmd;
+    int ret = 0;
+
+    if (copy_from_user(&cmd, arg, sizeof(cmd))) {
+        pr_err("veil2_control: copy_from_user failed\n");
+        return -EFAULT;
+    }
+
+    if (cmd.version != KSU_VEIL2_ABI_VERSION || cmd.reserved) {
+        pr_err("veil2_control: bad version/reserved (%u/%u)\n", cmd.version, cmd.reserved);
+        return -EINVAL;
+    }
+
+    switch (cmd.op) {
+    case KSU_VEIL2_OP_ADD:
+        ret = ksu_veil_cloak_add(cmd.uid);
+        break;
+    case KSU_VEIL2_OP_REMOVE:
+        ret = ksu_veil_cloak_remove(cmd.uid);
+        break;
+    case KSU_VEIL2_OP_CLEAR:
+        ksu_veil_cloak_clear();
+        break;
+    case KSU_VEIL2_OP_SET_AUTO:
+        ksu_veil_set_auto_cloak(cmd.value != 0);
+        break;
+    case KSU_VEIL2_OP_QUERY:
+        cmd.value = ksu_veil_is_cloaked(cmd.uid) ? 1 : 0;
+        if (copy_to_user(arg, &cmd, sizeof(cmd)))
+            return -EFAULT;
+        break;
+    case KSU_VEIL2_OP_GET_AUTO:
+        cmd.value = ksu_veil_get_auto_cloak() ? 1 : 0;
+        if (copy_to_user(arg, &cmd, sizeof(cmd)))
+            return -EFAULT;
+        break;
+    case KSU_VEIL2_OP_GET_STATS: {
+        struct ksu_veil2_stats stats = { 0 };
+
+        if (!cmd.stats)
+            return -EINVAL;
+        ksu_veil_stats(&stats);
+        if (copy_to_user((void __user *)cmd.stats, &stats, sizeof(stats)))
+            return -EFAULT;
+        if (copy_to_user(arg, &cmd, sizeof(cmd)))
+            return -EFAULT;
+        break;
+    }
+    case KSU_VEIL2_OP_LIST: {
+        uid_t *buf;
+        int total;
+        u32 cap = cmd.count;
+
+        if (cap > 4096)
+            cap = 4096; /* sanity bound */
+        if (cap == 0) {
+            cmd.count = ksu_veil_cloak_list(NULL, 0);
+            if (copy_to_user(arg, &cmd, sizeof(cmd)))
+                return -EFAULT;
+            break;
+        }
+        buf = kmalloc_array(cap, sizeof(uid_t), GFP_KERNEL);
+        if (!buf)
+            return -ENOMEM;
+        total = ksu_veil_cloak_list(buf, cap);
+        if (cmd.uids) {
+            u32 n = ((u32)total < cap) ? (u32)total : cap;
+
+            if (copy_to_user((uid_t __user *)cmd.uids, buf, n * sizeof(uid_t))) {
+                kfree(buf);
+                return -EFAULT;
+            }
+        }
+        kfree(buf);
+        cmd.count = total;
+        if (copy_to_user(arg, &cmd, sizeof(cmd)))
+            return -EFAULT;
+        break;
+    }
+    default:
+        return -EINVAL;
+    }
+    return ret;
+}
+
+static int do_veil2_history(void __user *arg)
+{
+    struct ksu_veil2_history_cmd cmd;
+    struct ksu_veil2_hist_entry *buf;
+    int total;
+    u32 cap;
+
+    if (copy_from_user(&cmd, arg, sizeof(cmd))) {
+        pr_err("veil2_history: copy_from_user failed\n");
+        return -EFAULT;
+    }
+
+    if (cmd.version != KSU_VEIL2_ABI_VERSION || cmd.reserved) {
+        pr_err("veil2_history: bad version/reserved (%u/%u)\n", cmd.version, cmd.reserved);
+        return -EINVAL;
+    }
+
+    if (cmd.op == 1) {
+        ksu_veil_history_clear();
+        return 0;
+    }
+    if (cmd.op != 0)
+        return -EINVAL;
+
+    cap = cmd.count;
+    if (cap > 4096)
+        cap = 4096; /* sanity bound */
+    if (cap == 0) {
+        cmd.count = ksu_veil_history_dump(NULL, 0);
+        if (copy_to_user(arg, &cmd, sizeof(cmd)))
+            return -EFAULT;
+        return 0;
+    }
+
+    buf = kmalloc_array(cap, sizeof(*buf), GFP_KERNEL);
+    if (!buf)
+        return -ENOMEM;
+    total = ksu_veil_history_dump(buf, cap);
+    if (cmd.entries) {
+        u32 n = ((u32)total < cap) ? (u32)total : cap;
+
+        if (copy_to_user((void __user *)cmd.entries, buf, n * sizeof(*buf))) {
+            kfree(buf);
+            return -EFAULT;
+        }
+    }
+    kfree(buf);
+    cmd.count = total;
+    if (copy_to_user(arg, &cmd, sizeof(cmd)))
+        return -EFAULT;
+    return 0;
+}
+
 static int do_disable_escape_to_root(void __user *arg)
 {
     set_thread_flag(TIF_KSU_DISABLE_ESCAPE_WITH_ROOT);
     return 0;
-}
-
-/*
- * Resolve symbols of the running kernel image, exported or not, matching
- * them like ksuinit's /proc/kallsyms walk. Userspace uses this to bind a
- * module's undefined symbols before init_module, so the kernel never parses
- * the module ELF itself.
- */
-static int do_lookup_symbols(void __user *arg)
-{
-    struct ksu_lookup_symbols_cmd cmd;
-    const u64 __user *unames;
-    u64 __user *uaddrs;
-    char **names;
-    unsigned long *addrs;
-    int ret = 0;
-    u32 i;
-
-    if (copy_from_user(&cmd, arg, sizeof(cmd)))
-        return -EFAULT;
-
-    if (cmd.flags) {
-        pr_err("lookup_symbols: unsupported flags 0x%x\n", cmd.flags);
-        return -EINVAL;
-    }
-    if (!cmd.count || cmd.count > KSU_LOOKUP_SYMBOLS_MAX)
-        return -EINVAL;
-
-    // TODO overflow check backport
-    names = vzalloc(cmd.count * sizeof(*names));
-    if (!names) {
-        return -ENOMEM;
-    }
-
-    addrs = vzalloc(cmd.count * sizeof(*addrs));
-    if (!addrs) {
-        vfree(names);
-        return -ENOMEM;
-    }
-
-    unames = (const u64 __user *)(uintptr_t)cmd.names;
-    uaddrs = (u64 __user *)(uintptr_t)cmd.addrs;
-    for (i = 0; i < cmd.count; i++) {
-        u64 uname;
-        char *name;
-
-        if (get_user(uname, unames + i)) {
-            ret = -EFAULT;
-            goto out;
-        }
-        name = strndup_user((const char __user *)(uintptr_t)uname, KSYM_NAME_LEN);
-        if (IS_ERR(name)) {
-            // An overlong name cannot be a kernel symbol: report it missing.
-            if (PTR_ERR(name) == -EINVAL)
-                continue;
-            ret = PTR_ERR(name);
-            goto out;
-        }
-        if (!*name) {
-            kfree(name);
-            continue;
-        }
-        names[i] = name;
-    }
-
-    ret = ksu_lookup_kernel_symbols((const char *const *)names, addrs, cmd.count);
-    if (ret < 0)
-        goto out;
-
-    for (i = 0; i < cmd.count; i++) {
-        if (put_user((u64)addrs[i], uaddrs + i)) {
-            ret = -EFAULT;
-            goto out;
-        }
-    }
-
-out:
-    if (names) {
-        for (i = 0; i < cmd.count; i++)
-            kfree(names[i]);
-    }
-    vfree(names);
-    vfree(addrs);
-    return ret;
 }
 
 // 100. GET_FULL_VERSION - Get full version string
@@ -1010,6 +1135,8 @@ static int do_get_hook_type(void __user *arg)
     struct ksu_hook_type_cmd cmd = { 0 };
 #if defined(CONFIG_KSU_TRACEPOINT_HOOK)
     const char *type = "Tracepoint Syscall Redirect";
+#elif defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
+    const char *type = "Tamper Syscall Table";
 #elif defined(CONFIG_KSU_MANUAL_HOOK)
     const char *type = "Manual";
 #elif defined(CONFIG_KSU_SUSFS)
@@ -1026,6 +1153,21 @@ static int do_get_hook_type(void __user *arg)
 
     if (copy_to_user(arg, &cmd, sizeof(cmd))) {
         pr_err("get_hook_type: copy_to_user failed\n");
+        return -EFAULT;
+    }
+
+    return 0;
+}
+
+// 102. ENABLE_KPM - Check if KPM is enabled
+static int do_enable_kpm(void __user *arg)
+{
+    struct ksu_enable_kpm_cmd cmd;
+
+    cmd.enabled = IS_ENABLED(CONFIG_KPM);
+
+    if (copy_to_user(arg, &cmd, sizeof(cmd))) {
+        pr_err("enable_kpm: copy_to_user failed\n");
         return -EFAULT;
     }
 
@@ -1168,12 +1310,6 @@ int ksu_handle_susfs_cmd(unsigned int cmd, void __user **arg)
         return 0;
     }
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
-#ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER
-    case CMD_SUSFS_SET_PRIORITY_UID_FILTER: {
-        susfs_set_priority_uid_filter(arg);
-        return 0;
-    }
-#endif
     case CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING: {
         susfs_set_avc_log_spoofing(arg);
         return 0;
@@ -1314,20 +1450,99 @@ int ksu_try_handle_toolkit_cmd(int magic2, unsigned int cmd, void __user **arg)
 }
 #endif
 
+/*
+ * Resolve symbols of the running kernel image, exported or not, matching
+ * them like ksuinit's /proc/kallsyms walk. Userspace uses this to bind a
+ * module's undefined symbols before init_module, so the kernel never parses
+ * the module ELF itself.
+ */
+static int do_lookup_symbols(void __user *arg)
+{
+    struct ksu_lookup_symbols_cmd cmd;
+    const u64 __user *unames;
+    u64 __user *uaddrs;
+    char **names;
+    unsigned long *addrs;
+    int ret = 0;
+    u32 i;
+
+    if (copy_from_user(&cmd, arg, sizeof(cmd)))
+        return -EFAULT;
+
+    if (cmd.flags) {
+        pr_err("lookup_symbols: unsupported flags 0x%x\n", cmd.flags);
+        return -EINVAL;
+    }
+    if (!cmd.count || cmd.count > KSU_LOOKUP_SYMBOLS_MAX)
+        return -EINVAL;
+
+    names = kvcalloc(cmd.count, sizeof(*names), GFP_KERNEL);
+    addrs = kvcalloc(cmd.count, sizeof(*addrs), GFP_KERNEL);
+    if (!names || !addrs) {
+        ret = -ENOMEM;
+        goto out;
+    }
+
+    unames = (const u64 __user *)(uintptr_t)cmd.names;
+    uaddrs = (u64 __user *)(uintptr_t)cmd.addrs;
+    for (i = 0; i < cmd.count; i++) {
+        u64 uname;
+        char *name;
+
+        if (get_user(uname, unames + i)) {
+            ret = -EFAULT;
+            goto out;
+        }
+        name = strndup_user((const char __user *)(uintptr_t)uname, KSYM_NAME_LEN);
+        if (IS_ERR(name)) {
+            // An overlong name cannot be a kernel symbol: report it missing.
+            if (PTR_ERR(name) == -EINVAL)
+                continue;
+            ret = PTR_ERR(name);
+            goto out;
+        }
+        if (!*name) {
+            kfree(name);
+            continue;
+        }
+        names[i] = name;
+    }
+
+    ret = ksu_lookup_kernel_symbols((const char *const *)names, addrs, cmd.count);
+    if (ret < 0)
+        goto out;
+
+    for (i = 0; i < cmd.count; i++) {
+        if (put_user((u64)addrs[i], uaddrs + i)) {
+            ret = -EFAULT;
+            goto out;
+        }
+    }
+
+out:
+    if (names) {
+        for (i = 0; i < cmd.count; i++)
+            kfree(names[i]);
+    }
+    kvfree(names);
+    kvfree(addrs);
+    return ret;
+}
+
 // IOCTL handlers mapping table
 // clang-format off
 static const struct ksu_ioctl_cmd_map ksu_ioctl_handlers[] = {
-    { 
-        .cmd = KSU_IOCTL_GRANT_ROOT, 
-        .name = "GRANT_ROOT", 
-        .handler = do_grant_root, 
-        .perm_check = allowed_for_su 
+    {
+        .cmd = KSU_IOCTL_GRANT_ROOT,
+        .name = "GRANT_ROOT",
+        .handler = do_grant_root,
+        .perm_check = always_allow
     },
-    { 
-        .cmd = KSU_IOCTL_GET_INFO, 
-        .name = "GET_INFO", 
-        .handler = do_get_info, 
-        .perm_check = always_allow 
+    {
+        .cmd = KSU_IOCTL_GET_INFO,
+        .name = "GET_INFO",
+        .handler = do_get_info,
+        .perm_check = always_allow
     },
     {
         .cmd = KSU_IOCTL_GET_INFO_LEGACY,
@@ -1335,126 +1550,156 @@ static const struct ksu_ioctl_cmd_map ksu_ioctl_handlers[] = {
         .handler = do_get_info_legacy,
         .perm_check = always_allow
     },
-    { 
-        .cmd = KSU_IOCTL_REPORT_EVENT, 
-        .name = "REPORT_EVENT", 
-        .handler = do_report_event, 
-        .perm_check = only_root 
+    {
+        .cmd = KSU_IOCTL_REPORT_EVENT,
+        .name = "REPORT_EVENT",
+        .handler = do_report_event,
+        .perm_check = only_root
     },
-    { 
-        .cmd = KSU_IOCTL_SET_SEPOLICY, 
-        .name = "SET_SEPOLICY", 
-        .handler = do_set_sepolicy, 
-        .perm_check = only_root 
+    {
+        .cmd = KSU_IOCTL_SET_SEPOLICY,
+        .name = "SET_SEPOLICY",
+        .handler = do_set_sepolicy,
+        .perm_check = only_root
     },
-    { 
+    {
         .cmd = KSU_IOCTL_CHECK_SAFEMODE,
         .name = "CHECK_SAFEMODE",
         .handler = do_check_safemode,
-        .perm_check = always_allow 
+        .perm_check = always_allow
     },
-    { 
+    {
         .cmd = KSU_IOCTL_GET_ALLOW_LIST,
         .name = "GET_ALLOW_LIST",
         .handler = do_get_allow_list,
-        .perm_check = manager_or_root 
+        .perm_check = manager_or_root
     },
-    { 
+    {
         .cmd = KSU_IOCTL_GET_DENY_LIST,
         .name = "GET_DENY_LIST",
         .handler = do_get_deny_list,
-        .perm_check = manager_or_root 
+        .perm_check = manager_or_root
     },
-    { 
+    {
         .cmd = KSU_IOCTL_NEW_GET_ALLOW_LIST,
         .name = "NEW_GET_ALLOW_LIST",
         .handler = do_new_get_allow_list,
-        .perm_check = manager_or_root 
+        .perm_check = manager_or_root
     },
-    { 
+    {
         .cmd = KSU_IOCTL_NEW_GET_DENY_LIST,
         .name = "NEW_GET_DENY_LIST",
         .handler = do_new_get_deny_list,
-        .perm_check = manager_or_root 
+        .perm_check = manager_or_root
     },
-    { 
+    {
         .cmd = KSU_IOCTL_UID_GRANTED_ROOT,
         .name = "UID_GRANTED_ROOT",
         .handler = do_uid_granted_root,
-        .perm_check = manager_or_root 
+        .perm_check = manager_or_root
     },
-    { 
+    {
         .cmd = KSU_IOCTL_UID_SHOULD_UMOUNT,
         .name = "UID_SHOULD_UMOUNT",
         .handler = do_uid_should_umount,
-        .perm_check = manager_or_root 
+        .perm_check = manager_or_root
     },
-    { 
+    {
         .cmd = KSU_IOCTL_GET_MANAGER_APPID,
         .name = "GET_MANAGER_APPID",
         .handler = do_get_manager_appid,
-        .perm_check = manager_or_root 
+        .perm_check = manager_or_root
     },
-    { 
+    {
         .cmd = KSU_IOCTL_GET_APP_PROFILE,
         .name = "GET_APP_PROFILE",
         .handler = do_get_app_profile,
-        .perm_check = only_manager 
+        .perm_check = manager_or_root
     },
-    { 
+    {
         .cmd = KSU_IOCTL_SET_APP_PROFILE,
         .name = "SET_APP_PROFILE",
         .handler = do_set_app_profile,
-        .perm_check = only_manager 
+        .perm_check = manager_or_root
     },
-    { 
-        .cmd = KSU_IOCTL_GET_FEATURE, 
-        .name = "GET_FEATURE", 
-        .handler = do_get_feature, 
-        .perm_check = manager_or_root 
+    {
+        .cmd = KSU_IOCTL_GET_FEATURE,
+        .name = "GET_FEATURE",
+        .handler = do_get_feature,
+        .perm_check = manager_or_root
     },
-    { 
-        .cmd = KSU_IOCTL_SET_FEATURE, 
-        .name = "SET_FEATURE", 
-        .handler = do_set_feature, 
-        .perm_check = manager_or_root 
+    {
+        .cmd = KSU_IOCTL_SET_FEATURE,
+        .name = "SET_FEATURE",
+        .handler = do_set_feature,
+        .perm_check = manager_or_root
     },
-    { 
+    {
         .cmd = KSU_IOCTL_GET_WRAPPER_FD,
         .name = "GET_WRAPPER_FD",
         .handler = do_get_wrapper_fd,
         .perm_check = manager_or_root,
         .allow_su_session = true
     },
-    { 
-        .cmd = KSU_IOCTL_MANAGE_MARK, 
-        .name = "MANAGE_MARK", 
-        .handler = do_manage_mark, 
-        .perm_check = manager_or_root 
+    {
+        .cmd = KSU_IOCTL_MANAGE_MARK,
+        .name = "MANAGE_MARK",
+        .handler = do_manage_mark,
+        .perm_check = manager_or_root
     },
-    { 
+    {
         .cmd = KSU_IOCTL_NUKE_EXT4_SYSFS,
         .name = "NUKE_EXT4_SYSFS",
         .handler = do_nuke_ext4_sysfs,
-        .perm_check = manager_or_root 
+        .perm_check = manager_or_root
     },
-    { 
+    {
         .cmd = KSU_IOCTL_MANAGE_TRY_UMOUNT,
         .name = "MANAGE_TRY_UMOUNT",
         .handler = manage_try_umount,
-        .perm_check = manager_or_root 
+        .perm_check = manager_or_root
     },
-    { 
-        .cmd = KSU_IOCTL_SET_INIT_PGRP, 
-        .name = "SET_INIT_PGRP", 
-        .handler = do_set_init_pgrp, 
-        .perm_check = only_root 
+    {
+        .cmd = KSU_IOCTL_SET_INIT_PGRP,
+        .name = "SET_INIT_PGRP",
+        .handler = do_set_init_pgrp,
+        .perm_check = only_root
     },
     {
         .cmd = KSU_IOCTL_GET_SULOG_FD,
         .name = "GET_SULOG_FD",
         .handler = do_get_sulog_fd,
         .perm_check = only_root
+    },
+    {
+        .cmd = KSU_IOCTL_VEIL2_GET_FD,
+        .name = "VEIL2_GET_FD",
+        .handler = do_veil2_get_fd,
+        .perm_check = only_root
+    },
+    {
+        .cmd = KSU_IOCTL_VEIL2_CONTROL,
+        .name = "VEIL2_CONTROL",
+        .handler = do_veil2_control,
+        .perm_check = manager_or_root
+    },
+    {
+        .cmd = KSU_IOCTL_VEIL2_HISTORY,
+        .name = "VEIL2_HISTORY",
+        .handler = do_veil2_history,
+        .perm_check = manager_or_root
+    },
+    {
+        .cmd = KSU_IOCTL_SU_REQUEST_POLL,
+        .name = "SU_REQUEST_POLL",
+        .handler = do_su_request_poll,
+        .perm_check = manager_or_root
+    },
+    {
+        .cmd = KSU_IOCTL_SU_REQUEST_ANSWER,
+        .name = "SU_REQUEST_ANSWER",
+        .handler = do_su_request_answer,
+        .perm_check = manager_or_root
     },
     {
         .cmd = KSU_IOCTL_DISABLE_ESCAPE_TO_ROOT,
@@ -1470,41 +1715,55 @@ static const struct ksu_ioctl_cmd_map ksu_ioctl_handlers[] = {
         .perm_check = only_root
     },
     // downstream begin
-    { 
+    {
         .cmd = KSU_IOCTL_GET_FULL_VERSION,
         .name = "GET_FULL_VERSION",
         .handler = do_get_full_version,
-        .perm_check = always_allow 
+        .perm_check = always_allow
     },
-    { 
-        .cmd = KSU_IOCTL_HOOK_TYPE, 
-        .name = "GET_HOOK_TYPE", 
-        .handler = do_get_hook_type, 
-        .perm_check = manager_or_root 
+    {
+        .cmd = KSU_IOCTL_HOOK_TYPE,
+        .name = "GET_HOOK_TYPE",
+        .handler = do_get_hook_type,
+        .perm_check = manager_or_root
     },
-    { 
+    {
+        .cmd = KSU_IOCTL_ENABLE_KPM,
+        .name = "GET_ENABLE_KPM",
+        .handler = do_enable_kpm,
+        .perm_check = manager_or_root
+    },
+    {
         .cmd = KSU_IOCTL_DYNAMIC_MANAGER,
         .name = "SET_DYNAMIC_MANAGER",
         .handler = do_dynamic_manager,
-        .perm_check = only_root 
+        .perm_check = only_root
     },
-    { 
-        .cmd = KSU_IOCTL_GET_MANAGERS, 
-        .name = "GET_MANAGERS", 
-        .handler = do_get_managers, 
-        .perm_check = manager_or_root 
+    {
+        .cmd = KSU_IOCTL_GET_MANAGERS,
+        .name = "GET_MANAGERS",
+        .handler = do_get_managers,
+        .perm_check = manager_or_root
     },
-    { 
-        .cmd = KSU_IOCTL_GET_KERNEL_PATCH_IMPLEMENT, 
-        .name = "GET_KERNEL_PATCH_IMPLEMENT", 
-        .handler = do_get_kernel_patch_implement, 
-        .perm_check = manager_or_root 
+    {
+        .cmd = KSU_IOCTL_GET_KERNEL_PATCH_IMPLEMENT,
+        .name = "GET_KERNEL_PATCH_IMPLEMENT",
+        .handler = do_get_kernel_patch_implement,
+        .perm_check = manager_or_root
     },
-    { 
-        .cmd = 0, 
-        .name = NULL, 
-        .handler = NULL, 
-        .perm_check = NULL 
+#ifdef CONFIG_KPM
+    {
+        .cmd = KSU_IOCTL_KPM,
+        .name = "KPM_OPERATION",
+        .handler = do_kpm,
+        .perm_check = manager_or_root
+    },
+#endif
+    {
+        .cmd = 0,
+        .name = NULL,
+        .handler = NULL,
+        .perm_check = NULL
     } // Sentine
 };
 // clang-format on
@@ -1514,7 +1773,7 @@ long ksu_supercall_handle_ioctl(const struct file *filp, unsigned int cmd, void 
     int i;
 
 #ifdef CONFIG_KSU_DEBUG
-    pr_info("ksu ioctl: cmd=0x%x from uid=%d\n", cmd, ksu_get_uid_t(current_uid()));
+    pr_info_ratelimited("ksu ioctl: cmd=0x%x from uid=%d\n", cmd, ksu_get_uid_t(current_uid()));
 #endif
 
     for (i = 0; ksu_ioctl_handlers[i].handler; i++) {
@@ -1522,7 +1781,7 @@ long ksu_supercall_handle_ioctl(const struct file *filp, unsigned int cmd, void 
             // Check permission first
             if (ksu_ioctl_handlers[i].perm_check && !ksu_ioctl_handlers[i].perm_check() &&
                 !(ksu_ioctl_handlers[i].allow_su_session && ksu_is_su_session_fd(filp))) {
-                pr_warn("ksu ioctl: permission denied for cmd=0x%x uid=%d\n", cmd, ksu_get_uid_t(current_uid()));
+                pr_warn_ratelimited("ksu ioctl: permission denied for cmd=0x%x uid=%d\n", cmd, ksu_get_uid_t(current_uid()));
                 return -EPERM;
             }
             // Execute handler
@@ -1531,7 +1790,7 @@ long ksu_supercall_handle_ioctl(const struct file *filp, unsigned int cmd, void 
         }
     }
 
-    pr_warn("ksu ioctl: unsupported command 0x%x\n", cmd);
+    pr_warn_ratelimited("ksu ioctl: unsupported command 0x%x\n", cmd);
     return -ENOTTY;
 }
 
