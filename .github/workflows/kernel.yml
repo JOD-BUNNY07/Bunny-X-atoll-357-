@@ -21,7 +21,6 @@ on:
           - mcqueen
           - mcqueen-ksu
           - Ksu-3.3.0-susfs-2.2.0-backup
-    - OriginSU
       defconfig:
         description: 'Defconfig'
         required: true
