@@ -1,8 +1,9 @@
 import asyncio
 import os,re
 import random
+import subprocess
 import sys,json
-from telegram import Bot,InputMediaDocument
+from telegram import Bot
 from telegram.error import RetryAfter
 from telegram.constants import ParseMode
 
@@ -10,6 +11,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 MESSAGE_THREAD_ID = os.environ.get("MESSAGE_THREAD_ID")
 DEVELOPING_THREAD_ID = os.environ.get("DEVELOPING_THREAD_ID")
+CHANGELOG_THREAD_ID = os.environ.get("CHANGELOG_THREAD_ID")
 RUN_URL = os.environ.get("RUN_URL")
 TITLE = os.environ.get("TITLE")
 VERSION = os.environ.get("VERSION")
@@ -23,39 +25,28 @@ GITHUB_REF_TYPE = os.environ.get("GITHUB_REF_TYPE")
 
 commit_message = ''
 commit_line = ''
-
-def format_commit_messages(commits, max_length=600):
-    formatted_commits = []
-    commits_to_show = commits[::-1]
-
-    for index, commit in enumerate(commits_to_show):
-        message = commit['message'].strip()
-        if len(message) > 200:
-            message = message[:197] + '...'
-        message += ' by ' + commit['author']['username']
-
-        remaining = len(commits_to_show) - index - 1
-        candidate_commits = formatted_commits + [message]
-        candidate_message = '\n------\n'.join(candidate_commits)
-        if remaining:
-            candidate_message += f'\n(other {remaining} commits)'
-
-        if len(candidate_message) > max_length:
-            omitted_count = len(commits_to_show) - index
-            omitted_message = f'(other {omitted_count} commits)'
-            commit_message = '\n------\n'.join(formatted_commits)
-            if commit_message:
-                commit_message += '\n'
-            return commit_message + omitted_message
-
-        formatted_commits.append(message)
-
-    return '\n------\n'.join(formatted_commits)
-
 try:
     if 'commits' in GITHUB_EVENT:
         commits = GITHUB_EVENT['commits']
-        commit_message = format_commit_messages(commits)
+        commit_message = ''
+        i = len(commits)
+        for commit in commits[::-1]:
+            msg_line = commit['message'].split('\n')
+            msg = commit['message'].strip()
+            if len(msg) > 200:
+                msg = msg[:197] + '...'
+            msg += ' by ' + commit['author']['username']
+            if i > 1:
+                msg += '\n------'
+            if len(msg) + 1 + len(commit_message) > 600:
+                commit_message = f'{commit_message}\n(other {i} commits)'
+                break
+            else:
+                commit_message = f'{msg}\n{commit_message}\n'
+            i -= 1
+        commit_message = f'{commit_message.strip()}'
+        last_commit = commits[-1]
+
     elif 'head_commit' in GITHUB_EVENT:
         msg = GITHUB_EVENT["head_commit"]["message"]
         if len(msg) > 200:
@@ -80,40 +71,34 @@ except:
     print_exc()
     commit_message = f'(Unexpected Error! So no commit message)'
 
-def escape_markdown_v2(text: str) -> str:
-    return re.sub(r'([_*\[\]()~`>#+\-=|{}.!\\])', r'\\\1', text)
-
-def escape_markdown_code(text: str) -> str:
-    return text.replace('\\', '\\\\').replace('`', '\\`')
-
-def escape_markdown_url(url: str) -> str:
-    return url.replace('\\', '\\\\').replace(')', '\\)')
-
 if 'compare' in GITHUB_EVENT:
     commit_url = GITHUB_EVENT['compare']
-    commit_line = '[Compare](' + escape_markdown_url(commit_url) + ')'
+    commit_line = '<a href="' + commit_url + '">Compare</a>'
 elif 'head_commit' in GITHUB_EVENT:
     commit_url = GITHUB_EVENT['head_commit']['url']
-    commit_line = '[Commit](' + escape_markdown_url(commit_url) + ')'
+    commit_line = '<a href="' + commit_url + '">Commit</a>'
 else:
     commit_line = ''
 
-MSG_TEMPLATE = """
-*{title}*
-Branch: {branch}
-\\#ci\\_{version}
-```
-{commit_message}
-```
-{commit_line}
-[Workflow run]({run_url})
-[Get latest main Debug build](https://nightly.link/Baka-SU/BakaSU/workflows/build-manager/main/Manager-debug.zip)
+DEBUG_LINK = "https://nightly.link/samakshkambxj/OriginSU/workflows/build-manager/main/Manager-debug.zip"
+
+DISPLAY_TITLES = {
+    "manager": "OriginSU Manager",
+    "spoofed-manager": "OriginSU Manager · Spoofed",
+}
+
+DEV_WARNING = (
+    "⚠️ <b>Development build</b>\n"
+    "Back up before installing. This is not a stable main or tag build."
+)
+
+MAIN_UPDATED_MSG = """
+<b>OriginSU Manager · main updated</b>
+Builds in this development topic may be out of date now. The latest main build is in the normal manager topic.
 """.strip()
 
-MAIN_UPDATED_MSG ="""
-main branch updated, manager in there may outdated 
-main 分支已更新，此 topic 的管理器可能已过时
-""".strip()
+def escape_telegram_html(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#39;")
 
 async def start_bot_api():
     print("[+] Starting Telegram Bot API")
@@ -145,36 +130,170 @@ async def wait_for_bot_api():
         return 
         
 
+def is_development_build() -> bool:
+    return BRANCH != "main" and GITHUB_REF_TYPE != "tag"
+
+
+def display_title(debug: bool = False) -> str:
+    base = DISPLAY_TITLES.get((TITLE or "").lower(), TITLE or "OriginSU Manager")
+    return f"{base} · Debug" if debug else base
+
+
+def build_caption(debug: bool = False) -> str:
+    lines = [
+        f"<b>{display_title(debug)}</b>",
+        f'Branch: <code>{escape_telegram_html(BRANCH or "")}</code> · '
+        f'Build <code>#ci_{VERSION}</code>',
+    ]
+    if is_development_build():
+        lines.append("")
+        lines.append(DEV_WARNING)
+    lines.append("")
+    lines.append(f"<pre>{escape_telegram_html(commit_message)}</pre>")
+    lines.append("")
+    links = [part for part in (commit_line, f'<a href="{RUN_URL}">Workflow run</a>') if part]
+    lines.append(" · ".join(links))
+    lines.append(f'<a href="{DEBUG_LINK}">Latest main debug build</a>')
+    return "\n".join(lines)
+
+
 def get_caption():
-    msg = MSG_TEMPLATE.format(
-        title=escape_markdown_v2(TITLE),
-        branch=escape_markdown_v2(BRANCH),
-        version=escape_markdown_v2(VERSION),
-        commit_message=escape_markdown_code(commit_message),
-        commit_line=commit_line,
-        run_url=escape_markdown_url(RUN_URL),
-    )
-    if BRANCH != "main" and GITHUB_REF_TYPE != "tag":
-        msg += "\n⚠️⚠️*DEV VERSION, PLEASE BACKUP BEFORE INSTALLATION*⚠️⚠️"
-        msg += "\n⚠️⚠️*测试版，安装前请备份*⚠️⚠️"
-    return msg
+    return build_caption()
+
 
 def get_caption_for_debug():
-    msg = MSG_TEMPLATE.format(
-        title=escape_markdown_v2(f"{TITLE}-Debug"),
-        branch=escape_markdown_v2(BRANCH),
-        version=escape_markdown_v2(VERSION),
-        commit_message=escape_markdown_code(commit_message),
-        commit_line=commit_line,
-        run_url=escape_markdown_url(RUN_URL),
-    )
-    if BRANCH != "main" and GITHUB_REF_TYPE != "tag":
-        msg += "\n⚠️⚠️*DEV VERSION, PLEASE BACKUP BEFORE INSTALLATION*⚠️⚠️"
-        msg += "\n⚠️⚠️*测试版，安装前请备份*⚠️⚠️"
-    return msg
+    return build_caption(debug=True)
+
+
+COMMIT_RE = re.compile(r"^(?P<type>[a-zA-Z]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<text>.+)$")
+CHANGELOG_GROUPS = (
+    ("feat", "New"),
+    ("fix", "Fixes"),
+)
+CHANGELOG_MAX_ENTRIES = 120
+CHANGELOG_CHUNK_LIMIT = 3800
+CHANGELOG_CONTINUED = "<b>OriginSU Manager · changelog · continued</b>"
+
+
+def _git(*args):
+    return subprocess.run(
+        ["git", *args],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+
+def changelog_since_tag():
+    """Return (base_tag, [(group, scope, text), ...]) for commits in the pushed tag.
+
+    The changelog is only posted for a release tag push, where HEAD *is* the
+    new tag, so the base must be the previous tag rather than the one being
+    released (otherwise the range is empty).
+    """
+    try:
+        base = _git("describe", "--tags", "--abbrev=0", "HEAD~1").strip()
+    except Exception as e:
+        print(f"[!] Could not resolve the previous tag: {e}")
+        base = ""
+    if not base:
+        # Older tag whose commit is not HEAD~1 (e.g. release from a merge
+        # commit): take the newest tag that is not the one being pushed.
+        try:
+            tags = _git("tag", "--list", "v*", "--sort=-v:refname").splitlines()
+            base = next((tag for tag in tags if tag and tag != BRANCH), "")
+        except Exception as e:
+            print(f"[!] Could not list tags for the changelog: {e}")
+            base = ""
+    revision_range = f"{base}..HEAD" if base else "HEAD"
+    try:
+        raw = _git(
+            "log", revision_range, "--no-merges", "--reverse",
+            "--pretty=format:%s",
+        )
+    except Exception as e:
+        print(f"[-] Could not read git history for the changelog: {e}")
+        return base, []
+
+    groups = {prefix: name for prefix, name in CHANGELOG_GROUPS}
+    entries = []
+    for subject in raw.splitlines():
+        subject = subject.strip()
+        if not subject:
+            continue
+        match = COMMIT_RE.match(subject)
+        if match:
+            group = groups.get(match.group("type").lower(), "Other")
+            entries.append((group, match.group("scope") or "", match.group("text").strip()))
+        else:
+            entries.append(("Other", "", subject))
+    return base, entries
+
+
+def build_changelog_messages():
+    base, entries = changelog_since_tag()
+    if not entries:
+        print("[!] No commits to announce in the changelog")
+        return []
+
+    total = len(entries)
+    entries = entries[:CHANGELOG_MAX_ENTRIES]
+
+    header = [
+        "<b>OriginSU Manager · changelog</b>",
+        (f"Since <code>{escape_telegram_html(base)}</code>" if base else "Full history")
+        + f" · <a href=\"{RUN_URL}\">Workflow run</a>",
+    ]
+
+    body = []
+    group_order = [name for _, name in CHANGELOG_GROUPS] + ["Other"]
+    grouped = {name: [] for name in group_order}
+    for group, scope, text in entries:
+        grouped.setdefault(group, []).append((scope, text))
+
+    for group in group_order:
+        items = grouped.get(group) or []
+        if not items:
+            continue
+        if body:
+            body.append("")
+        body.append(f"<b>{group}</b>")
+        for scope, text in items:
+            prefix = f"<b>{escape_telegram_html(scope)}</b> — " if scope else ""
+            body.append(f"• {prefix}{escape_telegram_html(text)}")
+
+    if total > len(entries):
+        body.append("")
+        body.append(f"…and {total - len(entries)} more commits")
+
+    messages = []
+    header_lines = header + [""]
+    chunk = list(header_lines)
+    keep = len(header_lines)
+    for line in body:
+        candidate = "\n".join(chunk + [line])
+        if len(candidate) > CHANGELOG_CHUNK_LIMIT and len(chunk) > keep:
+            messages.append("\n".join(chunk))
+            chunk = [CHANGELOG_CONTINUED, ""]
+            keep = len(chunk)
+        chunk.append(line)
+    if chunk:
+        messages.append("\n".join(chunk))
+    return [message.strip() for message in messages if message.strip()]
+
+
+async def send_changelog(bot: Bot):
+    if not CHANGELOG_THREAD_ID:
+        print("[!] CHANGELOG_THREAD_ID is not set, skipping the changelog post")
+        return
+    messages = build_changelog_messages()
+    for index, message in enumerate(messages):
+        print(f"[+] Sending changelog part {index + 1}/{len(messages)}")
+        await send_message(bot, CHAT_ID, message, CHANGELOG_THREAD_ID)
+
 
 def check_environ():
-    global CHAT_ID, MESSAGE_THREAD_ID, DEVELOPING_THREAD_ID
+    global CHAT_ID, MESSAGE_THREAD_ID, DEVELOPING_THREAD_ID, CHANGELOG_THREAD_ID
     if BOT_TOKEN is None:
         print("[-] Invalid BOT_TOKEN")
         exit(1)
@@ -214,11 +333,20 @@ def check_environ():
             exit(1)
     else:
         DEVELOPING_THREAD_ID = None
-        
+
+    if CHANGELOG_THREAD_ID and CHANGELOG_THREAD_ID != "":
+        try:
+            CHANGELOG_THREAD_ID = int(CHANGELOG_THREAD_ID)
+        except:
+            print("[-] Invalid CHANGELOG_THREAD_ID")
+            exit(1)
+    else:
+        CHANGELOG_THREAD_ID = None
+
 async def send_message(bot: Bot, chat_id: int, text: str, message_thread_id=None):
     try:
         await asyncio.sleep(random.uniform(0.2, 0.8))
-        return await bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN_V2, message_thread_id=message_thread_id,
+        return await bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML, message_thread_id=message_thread_id,
                                        read_timeout=350,write_timeout=350,connect_timeout=350,pool_timeout=350,disable_web_page_preview=True)
     except RetryAfter as e:
         print(f"[-] Hit Telegram flood limit, retrying after {e.retry_after} seconds...")
@@ -227,15 +355,18 @@ async def send_message(bot: Bot, chat_id: int, text: str, message_thread_id=None
     except:
         raise
 
-async def send_media_group(bot: Bot, chat_id: int, media: list, message_thread_id=None):
+async def send_document(bot: Bot, chat_id: int, file: str, filename: str, caption=None, message_thread_id=None):
     try:
         await asyncio.sleep(random.uniform(0.2, 0.8))
-        return await bot.send_media_group(chat_id=chat_id, media=media, message_thread_id=message_thread_id,
+        with open(file, "rb") as f:
+            return await bot.send_document(chat_id=chat_id, document=f, filename=filename,
+                                       caption=caption, parse_mode=ParseMode.HTML if caption else None,
+                                       message_thread_id=message_thread_id,
                                        read_timeout=350,write_timeout=350,connect_timeout=350,pool_timeout=350)
     except RetryAfter as e:
         print(f"[-] Hit Telegram flood limit, retrying after {e.retry_after} seconds...")
         await asyncio.sleep(e.retry_after)
-        return await send_media_group(bot, chat_id, media, message_thread_id)
+        return await send_document(bot, chat_id, file, filename, caption, message_thread_id)
     except:
         raise
 
@@ -262,11 +393,7 @@ async def main():
         if os.path.basename(file).find("debug") != -1:
             # If the filename contains "debug", skip it.
             continue
-        elif index == len(files) - 1:
-            # Only add caption to the last file
-            upload_release_files.append(InputMediaDocument(media=open(file, "rb"), filename=os.path.basename(file), caption=f"{caption if not no_caption else '*Release Manager*'}", parse_mode=ParseMode.MARKDOWN_V2))
-            continue
-        upload_release_files.append(InputMediaDocument(media=open(file, "rb"), filename=os.path.basename(file)))
+        upload_release_files.append(file)
 
     print("[+] Caption: ")
     print("---")
@@ -278,20 +405,41 @@ async def main():
         print("[+] Sending")
         if no_caption:
             await send_message(bot=bot, chat_id=CHAT_ID, text=caption, message_thread_id=MESSAGE_THREAD_ID)
-        if len(upload_release_files) > 0:
-            await send_media_group(bot=bot, chat_id=CHAT_ID, media=upload_release_files, message_thread_id=MESSAGE_THREAD_ID)
+        # One document per request: a media group with all APKs trips
+        # Telegram's request-size limit ("Request Entity Too Large") now
+        # that each APK embeds the full LKM matrix.
+        for index, file in enumerate(upload_release_files):
+            name = os.path.basename(file)
+            # Caption rides on the first file so it is delivered even if a
+            # later upload fails.
+            file_caption = caption if (not no_caption and index == 0) else None
+            try:
+                await send_document(bot=bot, chat_id=CHAT_ID, file=file, filename=name,
+                                    caption=file_caption, message_thread_id=MESSAGE_THREAD_ID)
+                print(f"[+] Sent {name}")
+            except Exception as e:
+                print(f"[-] Failed to upload {name}: {e}")
+                fallback = (f"⚠️ Could not upload <b>{escape_telegram_html(name)}</b> ({escape_telegram_html(str(e))}). "
+                            f"Get it from the <a href=\"{RUN_URL}\">workflow run</a>.")
+                await send_message(bot=bot, chat_id=CHAT_ID, text=fallback, message_thread_id=MESSAGE_THREAD_ID)
         if TITLE.lower() == "manager" and (BRANCH == "main" or GITHUB_REF_TYPE == "tag"):
             print("[+] Sending main branch updated message")
             await send_message(bot=bot,chat_id=CHAT_ID, text=MAIN_UPDATED_MSG, message_thread_id=DEVELOPING_THREAD_ID)
+        # Announce the changelog only for a pushed release tag. Branch builds
+        # (main or otherwise) update the APK topic but stay out of the
+        # changelog topic.
+        if TITLE.lower() == "manager" and GITHUB_REF_TYPE == "tag":
+            try:
+                await send_changelog(bot)
+            except Exception as e:
+                # The APKs are already delivered; a changelog failure should not
+                # fail the whole upload job.
+                print(f"[-] Failed to post the changelog: {e}")
     print("[+] Done!")
+    process.kill()
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except Exception as e:
         print(f"[-] An error occurred: {e}")
-    finally:
-        try:
-            process.kill()
-        except:
-            pass

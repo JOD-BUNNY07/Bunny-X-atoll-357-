@@ -12,7 +12,7 @@
 
 #include "../sys.h"
 
-#include <linux/fs.h>
+#include <linux/mount.h>
 
 /*
  * int mount(const char *source, const char *target,

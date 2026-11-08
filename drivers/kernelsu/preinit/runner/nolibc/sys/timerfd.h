@@ -13,19 +13,7 @@
 #include "../sys.h"
 #include "../time.h"
 
-#include <linux/fcntl.h>
-#ifndef TFD_TIMER_ABSTIME
-#define TFD_TIMER_ABSTIME (1 << 0)
-#endif
-#ifndef TFD_TIMER_CANCEL_ON_SET
-#define TFD_TIMER_CANCEL_ON_SET (1 << 1)
-#endif
-#ifndef TFD_CLOEXEC
-#define TFD_CLOEXEC O_CLOEXEC
-#endif
-#ifndef TFD_NONBLOCK
-#define TFD_NONBLOCK O_NONBLOCK
-#endif
+#include <linux/timerfd.h>
 
 
 static __attribute__((unused))
