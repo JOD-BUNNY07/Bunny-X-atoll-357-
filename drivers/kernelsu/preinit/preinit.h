@@ -4,9 +4,9 @@
 #include <linux/types.h>
 #include <asm/ptrace.h>
 
-#if defined(KSU_NO_PREINIT) || \
-    (!defined(CONFIG_KSU_TRACEPOINT_HOOK) && \
-     !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE))
+#if !defined(KSU_NO_PREINIT) && \
+    (defined(CONFIG_KSU_TRACEPOINT_HOOK) || \
+     defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE))
 void ksu_preinit_init(void);
 void ksu_preinit_exit(void);
 
