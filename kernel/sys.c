@@ -1230,37 +1230,47 @@ static int override_version(struct new_utsname __user *name)
 #endif
 }
 
+#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
+extern struct static_key_false susfs_is_uname_spoof_buffer_set;
+extern void susfs_spoof_uname(struct new_utsname *tmp);
+#endif
+
 SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 {
-	struct new_utsname tmp;
+        struct new_utsname tmp;
 
-	down_read(&uts_sem);
-	memcpy(&tmp, utsname(), sizeof(tmp));
+        down_read(&uts_sem);
+        memcpy(&tmp, utsname(), sizeof(tmp));
+
 #ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
-	if (static_branch_likely(&susfs_is_uname_spoof_buffer_set))
-		susfs_spoof_uname(&tmp);
-#endif // #ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
-	if (!strncmp(current->comm, "bpfloader", 9) ||
-	    !strncmp(current->comm, "netbpfload", 10) ||
-	    !strncmp(current->comm, "uprobestatsbpfload", TASK_COMM_LEN - 1) ||
-	    !strncmp(current->comm, "netd", 4)) {
-		if (current_uid().val == 0) {
-			strcpy(tmp.release, "5.10.239");
-			pr_debug("fake uname: %s/%d release=%s\n",
-				 current->comm, current->pid, tmp.release);
-		}
-	}
-	up_read(&uts_sem);
-	if (copy_to_user(name, &tmp, sizeof(tmp)))
-		return -EFAULT;
+        if (static_branch_likely(&susfs_is_uname_spoof_buffer_set))
+                susfs_spoof_uname(&tmp);
+#endif
 
-	if (override_release(name->release, sizeof(name->release)))
-		return -EFAULT;
-	if (override_architecture(name))
-		return -EFAULT;
-	if (override_version(name))
-		return -EFAULT;
-	return 0;
+        if (!strncmp(current->comm, "bpfloader", 9) ||
+            !strncmp(current->comm, "netbpfload", 10) ||
+            !strncmp(current->comm, "uprobestatsbpfload", TASK_COMM_LEN - 1) ||
+            !strncmp(current->comm, "netd", 4)) {
+                if (current_uid().val == 0) {
+                        strcpy(tmp.release, "5.10.239");
+                        pr_debug("fake uname: %s/%d release=%s\n",
+                                 current->comm, current->pid, tmp.release);
+                }
+        }
+
+        up_read(&uts_sem);
+
+        if (copy_to_user(name, &tmp, sizeof(tmp)))
+                return -EFAULT;
+
+        if (override_release(name->release, sizeof(name->release)))
+                return -EFAULT;
+        if (override_architecture(name))
+                return -EFAULT;
+        if (override_version(name))
+                return -EFAULT;
+
+        return 0;
 }
 
 #ifdef __ARCH_WANT_SYS_OLD_UNAME
@@ -1276,6 +1286,8 @@ SYSCALL_DEFINE1(uname, struct old_utsname __user *, name)
 
 	down_read(&uts_sem);
 	memcpy(&tmp, utsname(), sizeof(tmp));
+
+
 	up_read(&uts_sem);
 	if (copy_to_user(name, &tmp, sizeof(tmp)))
 		return -EFAULT;

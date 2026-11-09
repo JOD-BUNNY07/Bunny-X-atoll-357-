@@ -27,9 +27,11 @@
 #include <linux/bootmem.h>
 #include <linux/task_work.h>
 #include <linux/sched/task.h>
+
 #ifdef CONFIG_KSU_SUSFS
 #include <linux/susfs_def.h>
 #endif // #ifdef CONFIG_KSU_SUSFS
+
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 #include <linux/jump_label.h>
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
@@ -42,13 +44,14 @@ extern bool susfs_is_current_ksu_domain(void);
 extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;
 #define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+
 #ifdef CONFIG_OPLUS_SECURE_GUARD
 #ifdef CONFIG_OPLUS_MOUNT_BLOCK
 #ifdef CONFIG_OPLUS_KEVENT_UPLOAD
 #include <linux/oplus_kevent.h>
 #endif /* CONFIG_OPLUS_KEVENT_UPLOAD */
 #endif /* CONFIG_OPLUS_MOUNT_BLOCK */
-#endif /* CONFIG_OPLUS_SECURE_GUARD*/
+#endif /* CONFIG_OPLUS_SECURE_GUARD */
 
 /* Maximum number of mounts in a mount namespace */
 unsigned int sysctl_mount_max __read_mostly = 100000;
