@@ -169,6 +169,21 @@ mkdir -p "$OUT_DIR"
 make O="$OUT_DIR" ARCH=arm64 "$DEFCONFIG" > /dev/null 2>&1
 make O="$OUT_DIR" ARCH=arm64 olddefconfig > /dev/null 2>&1
 
+# Install UAPI headers required by KernelSU Preinit
+echo "========== INSTALL KSU PREINIT UAPI =========="
+
+make O="$OUT_DIR" ARCH=arm64 \
+    headers_install \
+    INSTALL_HDR_PATH="$OUT_DIR/usr" || exit 1
+
+# Verify required header
+if [ ! -f "$OUT_DIR/usr/include/linux/unstd.h" ]; then
+    echo "ERROR: KernelSU Preinit UAPI header missing!"
+    exit 1
+fi
+
+echo "Preinit UAPI header: FOUND"
+
 # Build with max parallelization
 JOBS=$(($(nproc) * 2))
 
