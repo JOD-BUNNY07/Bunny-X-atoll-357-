@@ -1,7 +1,8 @@
 #!/bin/bash
 set -e
 
-WORKDIR=$(pwd)
+WORKDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$WORKDIR" || exit 1
 OUT_DIR="$WORKDIR/out"
 NEUTRON_TAG="${NEUTRON_TAG:-06092026}"
 NEUTRON_DIR="$WORKDIR/toolchains/neutron-clang-${NEUTRON_TAG}"
