@@ -20,6 +20,9 @@
 #include <linux/syscalls.h>
 #include <linux/unistd.h>
 #include <linux/compat.h>
+#ifdef CONFIG_KSU_SUSFS
+#include <linux/susfs_def.h>
+#endif // #ifdef CONFIG_KSU_SUSFS
 
 #include <linux/uaccess.h>
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
@@ -27,6 +30,11 @@
 extern int susfs_get_data_path(struct path *path);
 extern bool susfs_is_inode_sus_path(struct inode *inode);
 #endif
+
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+#include <linux/susfs_def.h>
+extern __attribute__((hot)) bool susfs_is_inode_sus_path(struct inode *inode);
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 
 int iterate_dir(struct file *file, struct dir_context *ctx)
 {
