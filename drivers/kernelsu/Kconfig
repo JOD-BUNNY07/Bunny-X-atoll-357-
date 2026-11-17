@@ -281,4 +281,12 @@ config KSU_SUSFS_SUS_MAP
 
 endmenu
 
+config KSU_SUSFS_PRIORITY_UID_FILTER
+    bool "Enable SUSFS priority UID filter"
+    depends on KSU_SUSFS
+    default y
+    help
+        Enable priority UID filtering for SUSFS.
+        Requires the SUSFS priority UID filter implementation.
+
 endmenu
