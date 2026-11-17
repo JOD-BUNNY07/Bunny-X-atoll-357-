@@ -47,7 +47,6 @@
 #include "hook/syscall_hook.h"
 #include "hook/syscall_event_bridge.h"
 #endif
-
 #include "preinit/preinit.h"
 
 // clang-format off

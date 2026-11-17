@@ -11,7 +11,6 @@
 #include <linux/linkage.h>
 #endif
 
-#include <linux/ratelimit.h>
 #include <linux/printk.h>
 
 #ifdef pr_fmt
@@ -20,7 +19,7 @@
 #endif
 
 #ifdef CONFIG_KSU_DEBUG
-#define ksu_dbg(fmt, ...) pr_info_ratelimited(fmt, ##__VA_ARGS__)
+#define ksu_dbg(fmt, ...) pr_info(fmt, ##__VA_ARGS__)
 #else
 #define ksu_dbg(fmt, ...) no_printk(KERN_INFO pr_fmt(fmt), ##__VA_ARGS__)
 #endif
