@@ -32,6 +32,13 @@
 #include "fuse/fuse_i.h"
 #include "mount.h"
 
+/* Return the path structure for the /data directory. */
+int susfs_get_data_path(struct path *path)
+{
+    return kern_path("/data", LOOKUP_FOLLOW, path);
+}
+
+
 #ifdef SUSFS_KERNEL_READ_NEW
 static inline int susfs_kernel_read(struct file *fp, void *buf, size_t size, loff_t *pos)
 {
