@@ -198,7 +198,7 @@ int ksu_su_request_prompt(__u32 uid, __u32 euid)
 	 * then read req->id. Each caller queues its own request instead. */
     if (pending_count_locked() >= SU_REQUEST_MAX_PENDING) {
         mutex_unlock(&su_req_lock);
-        pr_warn_ratelimited("su_request: queue full, deny uid=%u\n", uid);
+        pr_warn("su_request: queue full, deny uid=%u\n", uid);
         return 0;
     }
 
