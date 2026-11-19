@@ -292,57 +292,66 @@ rm -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
 rm -f "$OUT_DIR/drivers/kernelsu/kernelsu.o"
 
 # ============================================================
-# CONFIGURATION
+# KAZESU CONFIGURATION
 # ============================================================
 
 echo
-echo "========== GENERATING CONFIG =========="
-
-if ! make O="$OUT_DIR" ARCH=arm64 "$DEFCONFIG" \
-    >"$OUT_DIR/config.log" 2>&1; then
-
-    cat "$OUT_DIR/config.log"
-    exit 1
-fi
-
-if ! make O="$OUT_DIR" ARCH=arm64 olddefconfig \
-    >>"$OUT_DIR/config.log" 2>&1; then
-
-    cat "$OUT_DIR/config.log"
-    exit 1
-fi
-
-# ============================================================
-# KAZESU CONFIG VALIDATION
-# ============================================================
+echo "========== GENERATING KAZESU CONFIG =========="
 
 CONFIG="$OUT_DIR/.config"
+CONFIG_TOOL="$WORKDIR/scripts/config"
+
+# Generate the selected device defconfig first.
+if ! make O="$OUT_DIR" ARCH=arm64 "$DEFCONFIG" \
+    >"$OUT_DIR/config.log" 2>&1; then
+    cat "$OUT_DIR/config.log"
+    echo "ERROR: Defconfig generation failed"
+    exit 1
+fi
+
+# scripts/config is part of the Linux kernel source tree.
+if [[ ! -f "$CONFIG_TOOL" ]]; then
+    echo "ERROR: $CONFIG_TOOL is missing"
+    echo "Cannot safely enable KazeSU configuration."
+    exit 1
+fi
+
+# KPROBES depends on MODULES and HAVE_KPROBES.
+# KSU depends on KPROBES and EXT4_FS.
+bash "$CONFIG_TOOL" --file "$CONFIG" \
+    --enable MODULES \
+    --enable KPROBES \
+    --enable EXT4_FS \
+    --enable KSU
+
+# Resolve all Kconfig dependencies. HAVE_KPROBES is an architecture
+# capability and must be selected by the arm64 Kconfig definitions.
+if ! make O="$OUT_DIR" ARCH=arm64 olddefconfig \
+    >>"$OUT_DIR/config.log" 2>&1; then
+    cat "$OUT_DIR/config.log"
+    echo "ERROR: olddefconfig failed"
+    exit 1
+fi
 
 echo
-echo "========== KAZESU CONFIG VALIDATION =========="
+echo "========== FINAL KAZESU CONFIG =========="
 
-for config in \
-    CONFIG_KSU \
-    CONFIG_KPROBES \
-    CONFIG_EXT4_FS; do
+grep -E '^(CONFIG_(MODULES|HAVE_KPROBES|KPROBES|EXT4_FS|KSU)=|# CONFIG_(MODULES|HAVE_KPROBES|KPROBES|EXT4_FS|KSU) is not set)' \
+    "$CONFIG" || true
 
+# Validate the final, dependency-resolved configuration.
+for config in CONFIG_MODULES CONFIG_HAVE_KPROBES CONFIG_KPROBES CONFIG_EXT4_FS CONFIG_KSU; do
     if ! grep -qx "${config}=y" "$CONFIG"; then
-
-        echo -e "${RED}ERROR: ${config}=y is required${NC}"
-        grep -n "$config" "$CONFIG" || true
+        echo
+        echo "ERROR: ${config}=y is required but is not enabled."
+        echo "Check the Kconfig dependency and $OUT_DIR/config.log."
         exit 1
-
     fi
-
-    echo -e "${GREEN}[OK] ${config}=y${NC}"
-
+    echo "[OK] ${config}=y"
 done
 
-echo
-echo "========== KAZESU CONFIGURATION =========="
-
-grep -E '^CONFIG_(KSU|KPROBES|HAVE_KPROBES|EXT4_FS|KSU_MULTI_MANAGER_SUPPORT)=' \
-    "$CONFIG" || true
+echo "SUCCESS: KazeSU config and dependencies are enabled."
+echo "================================================"
 
 # ============================================================
 # BUILD
