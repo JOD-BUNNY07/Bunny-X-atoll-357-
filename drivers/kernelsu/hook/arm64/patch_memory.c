@@ -12,6 +12,7 @@
 #include "linux/uaccess.h"
 #include "linux/stop_machine.h"
 #include "asm/cacheflush.h"
+#include "asm/pgtable.h"
 #include "asm-generic/fixmap.h"
 
 // https://github.com/fuqiuluo/ovo/blob/f7da411458e87d32438dc14fce5a3313ed0c967e/ovo/mmuhack.c#L21
@@ -69,7 +70,7 @@ unsigned long phys_from_virt(unsigned long addr, int *err)
     if (!pte_present(*pte))
         goto fail;
 
-    return __pte_to_phys(*pte) + ((addr & ~PAGE_MASK));
+    return ((phys_addr_t)pte_pfn(*pte) << PAGE_SHIFT) + ((addr & ~PAGE_MASK));
 
 fail:
     *err = -ENOENT;
@@ -92,7 +93,7 @@ fail:
 #define ksu_flush_icache(start, end) caches_clean_inval_pou(start, end)
 #else
 #define ksu_flush_dcache(start, sz) __flush_dcache_area((void *)start, sz)
-#define ksu_flush_icache(start, end) __flush_icache_range(start, end)
+#define ksu_flush_icache(start, end) flush_icache_range(start, end)
 #endif
 
 struct patch_text_info {
@@ -136,7 +137,7 @@ static int ksu_patch_text_nosync(void *dst, void *src, size_t len, int flags)
 
     void *map = set_fixmap_offset(FIX_TEXT_POKE0, phy);
 
-    ret = (int)copy_to_kernel_nofault(map, src, len);
+    ret = (int)probe_kernel_write(map, src, len);
 
     clear_fixmap(FIX_TEXT_POKE0);
 
