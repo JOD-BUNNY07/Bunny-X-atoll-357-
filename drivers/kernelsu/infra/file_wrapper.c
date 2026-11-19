@@ -408,6 +408,8 @@ static struct file *ksu_anon_inode_create_getfile_compat(const char *name, const
 {
     struct inode *inode;
     struct file *file;
+    struct path path;
+    struct qstr qname = QSTR_INIT(name, strlen(name));
 
     if (fops->owner && !try_module_get(fops->owner))
         return ERR_PTR(-ENOENT);
@@ -415,23 +417,39 @@ static struct file *ksu_anon_inode_create_getfile_compat(const char *name, const
     inode = ksu_anon_inode_make_secure_inode(name, context_inode);
     if (IS_ERR(inode)) {
         file = ERR_CAST(inode);
-        goto err;
+        goto err_module;
     }
 
-    file = alloc_file_pseudo(inode, anon_inode_mnt, name, flags & (O_ACCMODE | O_NONBLOCK), fops);
-    if (IS_ERR(file))
-        goto err_iput;
+    /*
+     * Linux 4.14 has no alloc_file_pseudo(). Use the same dentry/path
+     * construction as anon_inode_getfile(), while retaining the dedicated
+     * inode initialized by security_inode_init_security_anon().
+     */
+    path.dentry = d_alloc_pseudo(anon_inode_mnt->mnt_sb, &qname);
+    if (!path.dentry) {
+        iput(inode);
+        file = ERR_PTR(-ENOMEM);
+        goto err_module;
+    }
+
+    path.mnt = mntget(anon_inode_mnt);
+    d_instantiate(path.dentry, inode);
+
+    file = alloc_file(&path, OPEN_FMODE(flags), fops);
+    if (IS_ERR(file)) {
+        path_put(&path);
+        goto err_module;
+    }
 
     file->f_mapping = inode->i_mapping;
-
+    file->f_flags = flags & (O_ACCMODE | O_NONBLOCK);
     file->private_data = priv;
 
     return file;
 
-err_iput:
-    iput(inode);
-err:
-    module_put(fops->owner);
+err_module:
+    if (fops->owner)
+        module_put(fops->owner);
     return file;
 }
 #endif
