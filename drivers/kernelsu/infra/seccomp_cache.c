@@ -8,6 +8,8 @@
 #include "klog.h" // IWYU pragma: keep
 #include "infra/seccomp_cache.h"
 
+/* KSU seccomp cache requires architecture-provided syscall bitmap ABI. */
+#if defined(SECCOMP_ARCH_NATIVE) && defined(SECCOMP_ARCH_NATIVE_NR)
 struct action_cache {
     DECLARE_BITMAP(allow_native, SECCOMP_ARCH_NATIVE_NR);
 #ifdef SECCOMP_ARCH_COMPAT
@@ -63,3 +65,21 @@ void ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr)
     }
 #endif
 }
+#else
+/*
+ * Older kernels/architectures (including many Linux 4.14 trees) do not
+ * expose the SECCOMP_ARCH_NATIVE_* cache ABI. Disable only this optional
+ * optimization. The normal kernel seccomp filter remains fully enabled.
+ */
+void ksu_seccomp_clear_cache(struct seccomp_filter *filter, int nr)
+{
+    (void)filter;
+    (void)nr;
+}
+
+void ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr)
+{
+    (void)filter;
+    (void)nr;
+}
+#endif /* SECCOMP_ARCH_NATIVE && SECCOMP_ARCH_NATIVE_NR */

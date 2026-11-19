@@ -4,6 +4,8 @@
 #include <linux/fs.h>
 #include <linux/version.h>
 
+struct seccomp_filter;
+
 extern void ksu_seccomp_clear_cache(struct seccomp_filter *filter, int nr);
 extern void ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr);
 
