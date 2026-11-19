@@ -16,7 +16,7 @@ ANYKERNEL_DIR="$WORKDIR/AnyKernel3"
 
 DEVICE="RMX2061"
 DEFCONFIG="atoll_defconfig"
-KERNEL_NAME="BunnyBladeX-Perf-BakaSU"
+KERNEL_NAME="BunnyBladeX-Perf-KazeSU"
 VERSION="v1.0.0"
 
 DATE=$(date +%Y%m%d)

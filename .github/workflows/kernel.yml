@@ -2,13 +2,13 @@ name: BunnyBladeX Perf BakaSU Kernel Build
 
 on:
   push:
-    branches: [Bunny-Ksu, BakaSU-Susfs-Test, OriginSU, ResukiSU-msm-performance, Bunny-BakaSU-Inline-Hook, Resukisu-Sony-LMK-Port, ReSukiSU-clean, Ksu-3.3.0-susfs-2.2.0-backup, mcqueen, mcqueen-ksu, OriginSU]
+    branches: [Bunny-Ksu, KazeSU, BakaSU-Susfs-Test, OriginSU, ResukiSU-msm-performance, Bunny-BakaSU-Inline-Hook, Resukisu-Sony-LMK-Port, ReSukiSU-clean, Ksu-3.3.0-susfs-2.2.0-backup, mcqueen, mcqueen-ksu, OriginSU]
   workflow_dispatch:
     inputs:
       branch:
         description: 'Branch to build'
         required: true
-        default: 'OriginSU'
+        default: 'KazeSU,'
         type: choice
         options:
           - Bunny-Ksu
@@ -20,7 +20,7 @@ on:
           - ResukiSU-msm-performance
           - mcqueen
           - mcqueen-ksu
-          - Ksu-3.3.0-susfs-2.2.0-backup
+          - KazeSU
       defconfig:
         description: 'Defconfig'
         required: true
