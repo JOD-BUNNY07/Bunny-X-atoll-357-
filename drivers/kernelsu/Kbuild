@@ -205,9 +205,9 @@ RELEASE_API_BASE := https://git.zako.shirkneko.top:20004/api/v1/repos/$(REPO_OWN
 KSU_RELEASE_VER  := $(shell $(CURL_BIN) -s "$(RELEASE_API_BASE)/releases/latest" 2>/dev/null | grep -o '"tag_name":"[^"]*"' | head -1 | cut -d'"' -f4 | sed 's/^v//')
 RELEASE_COMMITS  := $(shell $(CURL_BIN) -s -D - -o /dev/null "$(RELEASE_API_BASE)/commits?sha=$(REPO_BRANCH)&limit=1" 2>/dev/null | tr -d '\r' | sed -n 's/^[Xx]-[Tt]otal-[Cc]ount:[[:space:]]*\([0-9]*\).*/\1/p')
 LOCAL_COUNT     := $(if $(RELEASE_COMMITS),$(RELEASE_COMMITS),$(git_commit_count))
-KSU_VERSION     := $(if $(LOCAL_COUNT),$(shell expr $(VERSION_BASE) + $(LOCAL_COUNT) + $(VERSION_OFFSET)),$(VERSION_BASE))
-VERSION_TAG     := $(or $(KSU_RELEASE_VER),$(git_latest_tag),3.0.0)
-KSU_VERSION_FULL := $(if $(call git_short_sha),v$(VERSION_TAG)-$(call git_short_sha)@$(call git_branch),v$(VERSION_TAG)-$(REPO_NAME)-unknown@unknown)
+KSU_VERSION := 35045
+VERSION_TAG := v1.0.0
+KSU_VERSION_FULL := "v1.0.0-35045@KazeSU"
 $(info -- $(REPO_NAME) version: $(KSU_VERSION) [$(KSU_VERSION_FULL)])
 
 ccflags-y += -DKSU_VERSION=$(KSU_VERSION)

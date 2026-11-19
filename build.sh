@@ -326,12 +326,49 @@ bash "$CONFIG_TOOL" --file "$CONFIG" \
 
 # Resolve all Kconfig dependencies. HAVE_KPROBES is an architecture
 # capability and must be selected by the arm64 Kconfig definitions.
+# KAZESU_SUSFS_CONFIG_PATCH_35045_V3
+echo ""
+echo "========== KAZESU + SUSFS CONFIGURATION =========="
+
+CONFIG_TOOL="${CONFIG_TOOL:-$WORKDIR/scripts/config}"
+if [ ! -f "$CONFIG_TOOL" ]; then
+    echo "ERROR: scripts/config not found: $CONFIG_TOOL"
+    exit 1
+fi
+chmod +x "$CONFIG_TOOL"
+
+# Request the core KSU/SUSFS options before olddefconfig resolves dependencies.
+for config in MODULES HAVE_KPROBES KPROBES EXT4_FS KSU KSU_SUSFS \
+    KSU_SUSFS_SUS_PATH KSU_SUSFS_SUS_MOUNT KSU_SUSFS_SUS_KSTAT \
+    KSU_SUSFS_SPOOF_UNAME KSU_SUSFS_ENABLE_LOG \
+    KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+    KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+    KSU_SUSFS_OPEN_REDIRECT KSU_SUSFS_SUS_MAP \
+    KSU_SUSFS_PRIORITY_UID_FILTER; do
+    "$CONFIG_TOOL" --file "$OUT_DIR/.config" --enable "$config"
+done
+echo "KazeSU/SUSFS options requested."
 if ! make O="$OUT_DIR" ARCH=arm64 olddefconfig \
     >>"$OUT_DIR/config.log" 2>&1; then
     cat "$OUT_DIR/config.log"
     echo "ERROR: olddefconfig failed"
     exit 1
 fi
+# KAZESU_SUSFS_CONFIG_VALIDATION_35045_V3
+echo ""
+echo "========== FINAL KAZESU + SUSFS CONFIG =========="
+grep -E '^(CONFIG_(MODULES|HAVE_KPROBES|KPROBES|EXT4_FS|KSU|KSU_SUSFS|KSU_SUSFS_SUS_PATH|KSU_SUSFS_SUS_MOUNT|KSU_SUSFS_SUS_KSTAT|KSU_SUSFS_SPOOF_UNAME|KSU_SUSFS_ENABLE_LOG|KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS|KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG|KSU_SUSFS_OPEN_REDIRECT|KSU_SUSFS_SUS_MAP|KSU_SUSFS_PRIORITY_UID_FILTER))=' \
+    "$OUT_DIR/.config" || true
+
+for config in MODULES HAVE_KPROBES KPROBES EXT4_FS KSU KSU_SUSFS; do
+    if ! grep -qx "CONFIG_${config}=y" "$OUT_DIR/.config"; then
+        echo "ERROR: CONFIG_${config}=y is missing after olddefconfig."
+        echo "The corresponding Kconfig dependency is not satisfied."
+        exit 1
+    fi
+done
+echo "SUCCESS: mandatory KazeSU + SUSFS config is enabled."
+echo "================================================="
 
 echo
 echo "========== FINAL KAZESU CONFIG =========="

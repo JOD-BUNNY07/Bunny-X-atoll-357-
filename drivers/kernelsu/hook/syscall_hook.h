@@ -1,6 +1,20 @@
 #ifndef __KSU_H_KSU_SYSCALL_HOOK
 #define __KSU_H_KSU_SYSCALL_HOOK
 #include <asm/syscall.h>
+#include <linux/version.h>
+#include <asm/ptrace.h>
+
+/*
+ * ARM64 Linux 4.14 does not declare syscall_fn_t in asm/syscall.h.
+ * Linux 5.4+ provides it there, so define it only for older kernels.
+ */
+#if defined(__aarch64__) && LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
+#ifndef KSU_ARM64_414_SYSCALL_FN_T
+#define KSU_ARM64_414_SYSCALL_FN_T
+typedef long (*syscall_fn_t)(const struct pt_regs *regs);
+#endif
+#endif
+
 
 #if defined(__x86_64__)
 typedef sys_call_ptr_t syscall_fn_t;
