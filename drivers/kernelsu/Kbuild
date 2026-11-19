@@ -208,6 +208,20 @@ LOCAL_COUNT     := $(if $(RELEASE_COMMITS),$(RELEASE_COMMITS),$(git_commit_count
 KSU_VERSION := 35045
 VERSION_TAG := v1.0.0
 KSU_VERSION_FULL := "v1.0.0-35045@KazeSU"
+
+# BEGIN BUNNYX SUSFS VERSION REPORT
+# Read version from include/linux/susfs.h; do not hardcode it.
+BUNNYX_SUSFS_HEADER := $(if $(srctree),$(srctree),$(CURDIR))/include/linux/susfs.h
+BUNNYX_SUSFS_VERSION := $(shell grep -m1 '^[[:space:]]*#[[:space:]]*define[[:space:]]\+SUSFS_VERSION' "$(BUNNYX_SUSFS_HEADER)" 2>/dev/null | cut -d '"' -f2)
+ifneq ($(strip $(BUNNYX_SUSFS_VERSION)),)
+$(info ========================================)
+$(info SUSFS Version: $(BUNNYX_SUSFS_VERSION))
+$(info SUSFS Source: include/linux/susfs.h)
+$(info ========================================)
+else
+$(warning SUSFS_VERSION not found in $(BUNNYX_SUSFS_HEADER))
+endif
+# END BUNNYX SUSFS VERSION REPORT
 $(info -- $(REPO_NAME) version: $(KSU_VERSION) [$(KSU_VERSION_FULL)])
 
 ccflags-y += -DKSU_VERSION=$(KSU_VERSION)
