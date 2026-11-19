@@ -11,6 +11,11 @@
 #include "klog.h" // IWYU pragma: keep
 #include "manager/throne_tracker.h"
 
+// Older kernels use a boolean task_work notification argument.
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0) && !defined(TWA_RESUME)
+#define TWA_RESUME true
+#endif
+
 #define MASK_SYSTEM (FS_CREATE | FS_MOVE | FS_EVENT_ON_CHILD)
 
 struct watch_dir {
@@ -29,7 +34,7 @@ static void ksu_track_throne_tw_func(struct callback_head *cb)
     // Runs after exit_fs() if the task is exiting; path lookups would oops
     if (current->flags & PF_EXITING)
         return;
-    track_throne(TRACK_THRONE_FORCE_SYNCHRONOUS);
+    track_throne(false);
 }
 
 // Never scan from the fsnotify handler: fsnotify_mark_srcu and the rename's dir
@@ -41,17 +46,20 @@ static void ksu_defer_track_throne(void)
 {
     struct callback_head *cb;
 
-    if (!(current->flags & PF_KTHREAD)) {
-        cb = kzalloc(sizeof(*cb), GFP_KERNEL);
-        if (cb) {
-            cb->func = ksu_track_throne_tw_func;
-            if (!task_work_add(current, cb, TWA_RESUME))
-                return;
-            kfree(cb);
-        }
-    }
-    pr_warn("defer track_throne failed, run it inline\n");
-    track_throne(TRACK_THRONE_FORCE_SYNCHRONOUS);
+    if (current->flags & PF_KTHREAD)
+        goto skipped;
+
+    cb = kzalloc(sizeof(*cb), GFP_KERNEL);
+    if (!cb)
+        goto skipped;
+
+    cb->func = ksu_track_throne_tw_func;
+    if (!task_work_add(current, cb, TWA_RESUME))
+        return;
+
+    kfree(cb);
+skipped:
+    pr_warn("defer track_throne failed, skipping scan\n");
 }
 
 static int ksu_handle_inode_event(struct fsnotify_mark *mark, u32 mask, struct inode *inode, struct inode *dir,
@@ -68,19 +76,8 @@ static int ksu_handle_inode_event(struct fsnotify_mark *mark, u32 mask, struct i
     return 0;
 }
 
-/*
- * The kernel calls group->ops->free_mark() unconditionally from
- * fsnotify_final_mark_destroy() (no NULL check), and the marks here come from
- * kzalloc() - not from fsnotify_mark_cache - so this is what releases them.
- */
-static void ksu_free_mark(struct fsnotify_mark *mark)
-{
-    kfree(mark);
-}
-
 static const struct fsnotify_ops ksu_ops = {
     .handle_inode_event = ksu_handle_inode_event,
-    .free_mark = ksu_free_mark,
 };
 
 static int add_mark_on_inode(struct inode *inode, u32 mask, struct fsnotify_mark **out)
@@ -156,25 +153,13 @@ int ksu_observer_init(void)
         return PTR_ERR(g);
 
     ret = watch_one_dir(&g_watch);
-    pr_info("%s done.\n", __func__);
+    pr_info("observer init done\n");
     return 0;
 }
 
 void __exit ksu_observer_exit(void)
 {
     unwatch_one_dir(&g_watch);
-    /*
-     * A group's marks are released by a delayed work
-     * (fsnotify_mark_destroy_workfn) that runs after synchronize_srcu() and calls
-     * group->ops->free_mark(), reading mark->group on the way.  Drain that work
-     * *before* dropping the group: dropping it first makes those callbacks read a
-     * freed group, and returning before the work has run at all lets the module be
-     * unloaded while the callback text is still pending - either way, a
-     * use-after-free in fsnotify_mark_destroy_workfn.
-     */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
-    fsnotify_wait_marks_destroyed();
-#endif
     fsnotify_put_group(g);
-    pr_info("%s: done.\n", __func__);
+    pr_info("observer exit done\n");
 }

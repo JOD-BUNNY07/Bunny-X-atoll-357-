@@ -8,9 +8,7 @@
 #include <linux/string.h>
 #include <linux/version.h>
 
-#include "klog.h" // IWYU pragma: keep
 #include "infra/symbol_resolver.h"
-#include "compat/kernel_compat.h"
 
 // https://github.com/torvalds/linux/commit/89245600941e4e0f87d77f60ee269b5e61ef4e49
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
@@ -51,7 +49,7 @@ static int (*kallsyms_on_each_match_symbol_fn)(int (*fn)(void *, unsigned long),
 static int find_kernel_symbol_exact_cb(void *data, unsigned long addr)
 {
     *(unsigned long *)data = addr;
-    return 0;
+    return 1;
 }
 #endif
 
@@ -104,7 +102,7 @@ static int lookup_symbol_variant_cb(void *data, const char *name, struct module 
 
     if (strcmp(name, ctx->symbol_name) != 0) {
         if (name_len <= ctx->symbol_len || strncmp(name, ctx->symbol_name, ctx->symbol_len) != 0 ||
-            (name[ctx->symbol_len] != '.' && name[ctx->symbol_len] != '$'))
+            name[ctx->symbol_len] != '.')
             return 0;
     }
 
@@ -379,7 +377,7 @@ int __nocfi ksu_lookup_kernel_symbols(const char *const *names, unsigned long *a
 void __init ksu_init_symbol_resolver()
 {
 #if !ALWAYS_HAVE_ON_EACH_SYMBOL
-    kallsyms_on_each_symbol_fn = (void *)find_kernel_symbol_exact("kallsyms_on_each_symbol");
+    kallsyms_on_each_symbol_fn = find_kernel_symbol_exact("kallsyms_on_each_symbol");
     if (!kallsyms_on_each_symbol_fn) {
         pr_warn("kallsyms_on_each_symbol not found!\n");
     }

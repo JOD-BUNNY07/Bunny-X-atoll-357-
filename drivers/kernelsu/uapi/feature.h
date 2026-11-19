@@ -7,14 +7,17 @@ enum ksu_feature_id {
     KSU_FEATURE_SULOG = 2,
     KSU_FEATURE_ADB_ROOT = 3,
     KSU_FEATURE_SELINUX_HIDE = 4,
-    KSU_FEATURE_ORIGIN_VEIL = 5,
-    KSU_FEATURE_SU_PROMPT = 6,
-    KSU_FEATURE_SU_PROMPT_TIMEOUT = 7,
-    KSU_FEATURE_SU_PROMPT_DEFAULT_ALLOW = 8,
-    KSU_FEATURE_SELINUX_MODE = 9,
-    KSU_FEATURE_SHELL_SU_ADB_ONLY = 10,
-    KSU_FEATURE_ROOT_GATE = 11,
-    KSU_FEATURE_ORIGIN_VEIL_V2 = 12,
+    // 5 was webview_zygote_umount (v3.3.0), keep it unused so stale configs don't apply
+    KSU_FEATURE_SHELL_SU_ADB_ONLY = 6,
+
+    /*
+     * Fork-local features start at 16. Upstream allocates from 0 upwards, so a
+     * gap here keeps a rebase from silently renumbering a feature that the
+     * manager and the on-disk .feature_config already refer to by id.
+     */
+    KSU_FEATURE_MOUNT_HIDE = 16,
+
+    KSU_FEATURE_AVC_SPOOF = 10003,
 
     KSU_FEATURE_MAX
 };

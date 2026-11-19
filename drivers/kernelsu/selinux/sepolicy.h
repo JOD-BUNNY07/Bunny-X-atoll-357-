@@ -5,16 +5,9 @@
 
 #include "ss/policydb.h"
 
-int ksu_dup_policydb(struct policydb *old_db, struct policydb *new_db);
-void ksu_destroy_policydb(struct policydb *db);
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0) || defined(KSU_COMPAT_HAS_POLICY_MUTEX)
 struct selinux_policy *ksu_dup_sepolicy(struct selinux_policy *old_pol);
 
-int ksu_policydb_fixup_len(struct policydb *db, const char *tag);
-
 void ksu_destroy_sepolicy(struct selinux_policy *orig);
-#endif
 
 // Operation on types
 bool ksu_type(struct policydb *db, const char *name, const char *attr);
@@ -23,6 +16,12 @@ bool ksu_permissive(struct policydb *db, const char *type);
 bool ksu_enforce(struct policydb *db, const char *type);
 bool ksu_typeattribute(struct policydb *db, const char *type, const char *attr);
 bool ksu_exists(struct policydb *db, const char *type);
+
+// Return 1 when the type value is from the initial policy, 0 when it is not, and -1 when metadata is unavailable
+int ksu_type_is_original(struct policydb *db, u32 policy_generation, u32 type_value);
+bool ksu_set_original_types(struct policydb *db, struct policydb *orig_db, u32 policy_generation);
+bool ksu_advance_original_types(struct policydb *db, struct policydb *old_db, u32 old_policy_generation,
+                                u32 policy_generation);
 
 // Access vector rules
 bool ksu_allow(struct policydb *db, const char *src, const char *tgt, const char *cls, const char *perm);

@@ -6,7 +6,6 @@
 #ifdef __x86_64__
 
 #include <linux/cache.h>
-#include "asm/text-patching.h" // IWYU pragma: keep
 #include "../patch_memory.h"
 #include "klog.h" // IWYU pragma: keep
 #include <linux/cpumask.h>
@@ -14,25 +13,14 @@
 #include <linux/uaccess.h>
 #include <linux/stop_machine.h>
 #include <asm/cacheflush.h>
+#include <asm-generic/fixmap.h>
 
 #include <asm/pgtable.h>
 #include <asm/page.h>
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0)
-#include <asm-generic/fixmap.h>
 #include <asm/fixmap.h>
-#else
-#include <asm/fixmap.h>
-#endif
-
-#include <linux/sched.h>
-
-/* --------------------------------- */
 
 // --- Architecture-specific Page Table to Physical Address translation ---
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
 #define KSU_P4D_TO_PHYS(p4d) ((unsigned long)p4d_pfn(p4d) << PAGE_SHIFT)
-#endif
 #define KSU_PUD_TO_PHYS(pud) ((unsigned long)pud_pfn(pud) << PAGE_SHIFT)
 #define KSU_PMD_TO_PHYS(pmd) ((unsigned long)pmd_pfn(pmd) << PAGE_SHIFT)
 #define KSU_PTE_TO_PHYS(pte) ((unsigned long)pte_pfn(pte) << PAGE_SHIFT)
@@ -43,9 +31,7 @@ unsigned long phys_from_virt(unsigned long addr, int *err)
 {
     struct mm_struct *mm = &init_mm;
     pgd_t *pgd;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
     p4d_t *p4d;
-#endif
     pud_t *pud;
     pmd_t *pmd;
     pte_t *pte;
@@ -56,7 +42,6 @@ unsigned long phys_from_virt(unsigned long addr, int *err)
     if (pgd_none(*pgd) || pgd_bad(*pgd))
         goto fail;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
     p4d = p4d_offset(pgd, addr);
     if (p4d_none(*p4d) || p4d_bad(*p4d))
         goto fail;
@@ -71,9 +56,6 @@ unsigned long phys_from_virt(unsigned long addr, int *err)
 #endif
 
     pud = pud_offset(p4d, addr);
-#else
-    pud = pud_offset(pgd, addr);
-#endif
     if (pud_none(*pud) || pud_bad(*pud))
         goto fail;
 #if defined(pud_leaf)
@@ -130,16 +112,16 @@ struct patch_text_info {
     int flags;
 };
 
+// Runs under stop_machine; propagate errors without console output.
 static int ksu_patch_text_nosync(void *dst, void *src, size_t len, int flags)
 {
     unsigned long p = (unsigned long)dst;
-    int ret = 0;
+    int ret;
 
     int phy_err;
     unsigned long phy = phys_from_virt(p, &phy_err);
     if (phy_err) {
         ret = phy_err;
-        pr_err("failed to find phy addr for patch dst addr 0x%lx\n", p);
         goto err;
     }
 
@@ -147,20 +129,16 @@ static int ksu_patch_text_nosync(void *dst, void *src, size_t len, int flags)
     set_fixmap(FIX_BTMAP_BEGIN, phy & PAGE_MASK);
     void *map = (void *)(fix_to_virt(FIX_BTMAP_BEGIN) + (phy & ~PAGE_MASK));
 
-    memcpy(map, src, len);
-
-    if (memcmp(map, src, len) == 0) {
-        ret = 0;
-    } else {
-        ret = -EFAULT;
-    }
+    ret = (int)copy_to_kernel_nofault(map, src, len);
 
     clear_fixmap(FIX_BTMAP_BEGIN);
 
-    if (flags & KSU_PATCH_TEXT_FLUSH_ICACHE)
-        ksu_flush_icache((uintptr_t)dst, (uintptr_t)dst + len);
-    if (flags & KSU_PATCH_TEXT_FLUSH_DCACHE)
-        ksu_flush_dcache(dst, len);
+    if (!ret) {
+        if (flags & KSU_PATCH_TEXT_FLUSH_ICACHE)
+            ksu_flush_icache((uintptr_t)dst, (uintptr_t)dst + len);
+        if (flags & KSU_PATCH_TEXT_FLUSH_DCACHE)
+            ksu_flush_dcache(dst, len);
+    }
 
 err:
     return ret;
@@ -191,6 +169,7 @@ static int ksu_patch_text_cb(void *arg)
 
 int ksu_patch_text(void *dst, void *src, size_t len, int flags)
 {
+    int ret;
     struct patch_text_info info = {
         .dst = dst,
         .src = src,
@@ -199,7 +178,10 @@ int ksu_patch_text(void *dst, void *src, size_t len, int flags)
         .flags = flags,
     };
 
-    return stop_machine(ksu_patch_text_cb, &info, cpu_online_mask);
+    ret = stop_machine(ksu_patch_text_cb, &info, cpu_online_mask);
+    if (ret)
+        pr_err("failed to patch kernel address 0x%lx: %d\n", (unsigned long)dst, ret);
+    return ret;
 }
 
 // TODO:

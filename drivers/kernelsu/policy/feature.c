@@ -6,7 +6,6 @@
 #include <linux/moduleparam.h>
 #include <linux/mutex.h>
 #include <linux/string.h>
-#include <linux/version.h>
 
 static const struct ksu_feature_handler *feature_handlers[KSU_FEATURE_MAX];
 
@@ -18,14 +17,9 @@ static const char *const feature_names[KSU_FEATURE_MAX] = {
     [KSU_FEATURE_SULOG] = "sulog",
     [KSU_FEATURE_ADB_ROOT] = "adb_root",
     [KSU_FEATURE_SELINUX_HIDE] = "selinux_hide",
-    [KSU_FEATURE_ORIGIN_VEIL] = "veil",
-    [KSU_FEATURE_SU_PROMPT] = "su_prompt",
-    [KSU_FEATURE_SU_PROMPT_TIMEOUT] = "su_prompt_timeout",
-    [KSU_FEATURE_SU_PROMPT_DEFAULT_ALLOW] = "su_prompt_default_allow",
-    [KSU_FEATURE_SELINUX_MODE] = "selinux",
     [KSU_FEATURE_SHELL_SU_ADB_ONLY] = "shell_su_adb_only",
-    [KSU_FEATURE_ROOT_GATE] = "root_gate",
-    [KSU_FEATURE_ORIGIN_VEIL_V2] = "veil2",
+    [KSU_FEATURE_MOUNT_HIDE] = "mount_hide",
+    [KSU_FEATURE_AVC_SPOOF] = "avc_spoof",
 };
 
 // Features forced by boot config. Written only while parsing module params
@@ -103,11 +97,9 @@ static int force_feature_param_set(const char *val, const struct kernel_param *k
 }
 
 static const struct kernel_param_ops force_feature_param_ops = {
-    .set = force_feature_param_set,
-// A bare `force_feature` would otherwise fail parse_args() and the whole module load
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+    // A bare `force_feature` would otherwise fail parse_args() and the whole module load
     .flags = KERNEL_PARAM_OPS_FL_NOARG,
-#endif
+    .set = force_feature_param_set,
 };
 module_param_cb(force_feature, &force_feature_param_ops, NULL, 0);
 

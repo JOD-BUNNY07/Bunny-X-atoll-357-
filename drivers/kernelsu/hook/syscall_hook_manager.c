@@ -8,9 +8,7 @@
 #include <trace/events/syscalls.h>
 
 #include <linux/version.h>
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
 #include <linux/sched/task_stack.h>
-#endif
 #include <linux/compat.h>
 
 #include "arch.h"
@@ -144,13 +142,6 @@ void __init ksu_syscall_hook_manager_init(void)
     ksu_register_syscall_hook(__NR_newfstatat, ksu_hook_newfstatat);
     ksu_register_syscall_hook(__NR_faccessat, ksu_hook_faccessat);
 
-#ifdef CONFIG_KSU_TAMPER_SYSCALL_TABLE
-    // Surgical table tampering: the hooked entries are patched directly,
-    // no sys_enter tracepoint is registered. Entries that fail validation
-    // are skipped, never patched blindly.
-    if (ksu_tamper_install())
-        pr_err("hook_manager: tamper install incomplete, some hooks skipped\n");
-#else
 #ifdef CONFIG_HAVE_SYSCALL_TRACEPOINTS
     ret = register_trace_prio_sys_enter(ksu_sys_enter_handler, NULL, INT_MIN);
 #ifndef CONFIG_KRETPROBES
@@ -162,7 +153,6 @@ void __init ksu_syscall_hook_manager_init(void)
         pr_info("hook_manager: sys_enter tracepoint registered\n");
     }
 #endif
-#endif
 
     ksu_setuid_hook_init();
     ksu_sucompat_init();
@@ -171,15 +161,10 @@ void __init ksu_syscall_hook_manager_init(void)
 void __exit ksu_syscall_hook_manager_exit(void)
 {
     pr_info("hook_manager: ksu_hook_manager_exit called\n");
-#ifdef CONFIG_KSU_TAMPER_SYSCALL_TABLE
-    // Tampered entries are restored by ksu_syscall_hook_exit() via the
-    // tracking list; there is no tracepoint to unregister.
-#else
 #ifdef CONFIG_HAVE_SYSCALL_TRACEPOINTS
     unregister_trace_sys_enter(ksu_sys_enter_handler, NULL);
     tracepoint_synchronize_unregister();
     pr_info("hook_manager: sys_enter tracepoint unregistered\n");
-#endif
 #endif
 
 #ifdef CONFIG_KRETPROBES
