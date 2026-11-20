@@ -75,8 +75,7 @@ static int ksu_handle_event(struct fsnotify_group *group, struct inode *inode,
     if (mask & FS_ISDIR)
         return 0;
     if (!strcmp((const char *)file_name, "packages.list")) {
-        pr_info("packages.list detected: %u
-", mask);
+        pr_info("packages.list detected: %u\n", mask);
         ksu_defer_track_throne();
     }
     return 0;
