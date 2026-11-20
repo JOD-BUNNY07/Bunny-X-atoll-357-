@@ -13,7 +13,7 @@
 #include <linux/syscalls.h>
 #include <linux/task_work.h>
 #include <linux/version.h>
-#include <uapi/linux/mount.h>
+#include <uapi/linux/fs.h>
 
 #include "arch.h"
 #include "klog.h" // IWYU pragma: keep
