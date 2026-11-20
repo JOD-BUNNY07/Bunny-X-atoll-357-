@@ -266,14 +266,6 @@ $(info -- $(REPO_NAME)/compat: found hashtab_key_params function)
 ccflags-y += -DKSU_COMPAT_HAS_HASHTAB_KEY_PARAMS
 endif
 
-# Match the target's symbol hash, including Android/vendor backports. Do not
-# select a hash by kernel version: using a different hash silently misses keys.
-ifeq ($(shell grep -F -q '((hash << 5) + hash) ^ c' $(srctree)/security/selinux/ss/symtab.c && grep -E -q 'hash[[:space:]]*=[[:space:]]*5381' $(srctree)/security/selinux/ss/symtab.c; echo $$?),0)
-ccflags-y += -DKSU_COMPAT_SYMTAB_HASH_DJB2A
-else ifeq ($(shell grep -F -q 'val = (val << 4 | (val >> (8*sizeof(unsigned int)-4))) ^ (*p)' $(srctree)/security/selinux/ss/symtab.c; echo $$?),0)
-ccflags-y += -DKSU_COMPAT_SYMTAB_HASH_ROT4
-endif
-
 # https://github.com/torvalds/linux/commit/c3a276111ea2572399281988b3129683e2a6b60b
 ifeq ($(shell grep -q "filename_trans_key" $(srctree)/security/selinux/ss/policydb.h; echo $$?),0)
 $(info -- $(REPO_NAME)/compat: found filename_trans_key function)
@@ -375,4 +367,28 @@ ifeq ($(shell grep -q "ksu_handle_init_module" $(srctree)/kernel/module/main.c 2
   else
     $(error You must hook both init_module and finit_module if you want module blacklist)
   endif
+endif
+
+ifeq ($(shell grep -q 'static int selinux_inode_setxattr. *struct user_namespace .*mnt_userns,' $(srctree)/security/selinux/hooks.c 2>/dev/null; echo $$?),0)
+$(info -- $(REPO_NAME)/compat: found 5.12 inode_setxattr prototype)
+ccflags-y += -DKSU_COMPAT_USE_5_12_INODE_SETXAATR
+endif
+
+ifeq ($(shell grep -q 'static int selinux_inode_setxattr. *struct mnt_idmap .*idmap,' $(srctree)/security/selinux/hooks.c 2>/dev/null; echo $$?),0)
+$(info -- $(REPO_NAME)/compat: found 6.3 inode_setxattr prototype)
+ccflags-y += -DKSU_COMPAT_USE_6_3_INODE_SETXAATR
+endif
+
+# https://github.com/torvalds/linux/commit/6f3be9f562e3027c77bc4482ccf2cea8600a7f74
+# 4.5
+ifeq ($(shell grep -q 'LABEL_INITIALIZED' $(srctree)/security/selinux/include/objsec.h 2>/dev/null; echo $$?),0)
+$(info -- $(REPO_NAME)/compat: found isec LABEL_INITIALIZED)
+ccflags-y += -DKSU_COMPAT_HAS_ISEC_LABEL_INITIALIZED
+endif
+
+# https://github.com/torvalds/linux/commit/cdfb6b341f0f2409aba24b84f3b4b2bba50be5c5
+# 4.18
+ifeq ($(shell grep -q -F 'static inline struct audit_context *audit_context(void)' $(srctree)/include/linux/audit.h 2>/dev/null; echo $$?),0)
+$(info -- $(REPO_NAME)/compat: found audit_context func)
+ccflags-y += -DKSU_COMPAT_HAS_AUDIT_CONTEXT
 endif

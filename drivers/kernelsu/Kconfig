@@ -80,7 +80,7 @@ config KSU_MULTI_MANAGER_SUPPORT
 choice
 	prompt "KernelSU Hooking Method"
 	depends on KSU
-	default KSU_SUSFS
+	default KSU_TRACEPOINT_HOOK
 	help
 	  Select the hooking method for KernelSU.
 	  Note: Tracepoint Syscall Redirect hook is only supported for GKI2(5.10+)
@@ -233,13 +233,6 @@ config KSU_SUSFS_OPEN_REDIRECT
         - Please be reminded that process with open access to the target and redirected path can be detected.
         - Effective only on processes with uid < 2000.
 
-config KSU_SUSFS_PRIORITY_UID_FILTER
-    bool "Enable SUSFS priority UID filter"
-    depends on KSU_SUSFS
-    default y
-    help
-        Enable priority UID filtering and app string resolution.
-
 config KSU_SUSFS_SUS_MAP
     bool "Enable hiding some mmapped real files from different proc maps interfaces"
     depends on KSU_SUSFS
@@ -250,6 +243,14 @@ config KSU_SUSFS_SUS_MAP
         - It does NOT hide any inline hooks or PLT hooks caused by the injected library itself.
         - It may not be able to evade detections by apps that implement a good injection detection.
         - Effective only on zygote spawned umounted user app process >= 10000.
+
+config KSU_SUSFS_PRIORITY_UID_FILTER
+    bool "Enable SUSFS priority UID filter"
+    depends on KSU_SUSFS
+    default y
+    help
+        Hide configured application UIDs from getpriority, setpriority,
+        ioprio_get, and ioprio_set for unprivileged app processes.
 
 endmenu
 
