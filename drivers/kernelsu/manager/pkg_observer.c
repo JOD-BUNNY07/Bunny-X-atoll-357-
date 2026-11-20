@@ -5,6 +5,7 @@
 #include <linux/fsnotify_backend.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
+#include <linux/string.h>
 #include <linux/rculist.h>
 #include <linux/task_work.h>
 #include <linux/version.h>
@@ -62,22 +63,27 @@ skipped:
     pr_warn("defer track_throne failed, skipping scan\n");
 }
 
-static int ksu_handle_inode_event(struct fsnotify_mark *mark, u32 mask, struct inode *inode, struct inode *dir,
-                                  const struct qstr *file_name, u32 cookie)
+static int ksu_handle_event(struct fsnotify_group *group, struct inode *inode,
+                            struct fsnotify_mark *inode_mark,
+                            struct fsnotify_mark *vfsmount_mark, u32 mask,
+                            const void *data, int data_type,
+                            const unsigned char *file_name, u32 cookie,
+                            struct fsnotify_iter_info *iter_info)
 {
     if (!file_name)
         return 0;
     if (mask & FS_ISDIR)
         return 0;
-    if (file_name->len == 13 && !memcmp(file_name->name, "packages.list", 13)) {
-        pr_info("packages.list detected: %d\n", mask);
+    if (!strcmp((const char *)file_name, "packages.list")) {
+        pr_info("packages.list detected: %u
+", mask);
         ksu_defer_track_throne();
     }
     return 0;
 }
 
 static const struct fsnotify_ops ksu_ops = {
-    .handle_inode_event = ksu_handle_inode_event,
+    .handle_event = ksu_handle_event,
 };
 
 static int add_mark_on_inode(struct inode *inode, u32 mask, struct fsnotify_mark **out)
@@ -91,9 +97,12 @@ static int add_mark_on_inode(struct inode *inode, u32 mask, struct fsnotify_mark
     fsnotify_init_mark(m, g);
     m->mask = mask;
 
-    if (fsnotify_add_inode_mark(m, inode, 0)) {
-        fsnotify_put_mark(m);
-        return -EINVAL;
+        {
+        int ret = fsnotify_add_mark(m, inode, NULL, 0);
+        if (ret) {
+            fsnotify_put_mark(m);
+            return ret;
+        }
     }
     *out = m;
     return 0;
