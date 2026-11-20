@@ -601,22 +601,46 @@ static long ksu_sys_fstat(const struct pt_regs *regs)
 
     ret = orig_sys_fstat(regs);
 
-    if (is_rc) {
-        void __user *st_size_ptr = statbuf + offsetof(struct stat, st_size);
+    if (is_rc && ret == 0) {
+        char __user *st_size_ptr =
+            (char __user *)statbuf + offsetof(struct stat, st_size);
+
         long size, new_size;
-        size_t extra = ksu_rc_len + module_rc_len;
-        if (!copy_from_user_nofault(&size, st_size_ptr, sizeof(long))) {
-            new_size = size + extra;
-            pr_info("adding rc len: %ld -> %ld (static=%zu module=%zu)", size, new_size, ksu_rc_len, module_rc_len);
-            if (!copy_to_user_nofault(st_size_ptr, &new_size, sizeof(long))) {
-                pr_info("added rc len");
-            } else {
-                pr_err("add rc len failed: statbuf 0x%lx", (unsigned long)st_size_ptr);
-            }
+        size_t extra;
+        const unsigned long long max_long =
+            (unsigned long long)(~0UL >> 1);
+
+        if (copy_from_user(&size, st_size_ptr, sizeof(size))) {
+            pr_err("failed to read st_size: %px", st_size_ptr);
+        } else if (size < 0 ||
+                   ksu_rc_len > (size_t)-1 - module_rc_len) {
+            pr_err("invalid st_size or RC length overflow");
         } else {
-            pr_err("read statbuf 0x%lx failed", (unsigned long)st_size_ptr);
+            extra = ksu_rc_len + module_rc_len;
+
+            if ((unsigned long long)extra > max_long ||
+                (unsigned long long)size >
+                    max_long - (unsigned long long)extra) {
+                pr_err("st_size overflow: size=%ld extra=%zu",
+                       size, extra);
+            } else {
+                new_size = size + (long)extra;
+
+                pr_info("adding rc len: %ld -> %ld "
+                        "(static=%zu module=%zu)\n",
+                        size, new_size, ksu_rc_len, module_rc_len);
+
+                if (!copy_to_user(st_size_ptr, &new_size,
+                                  sizeof(new_size))) {
+                    pr_info("added rc len");
+                } else {
+                    pr_err("failed to update st_size: %px",
+                           st_size_ptr);
+                }
+            }
         }
     }
+
 
     return ret;
 }
