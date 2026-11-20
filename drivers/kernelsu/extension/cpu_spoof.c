@@ -29,8 +29,10 @@
 #include <asm/cpu.h>
 #include <asm/cputype.h>
 #include <asm/cpufeature.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
 #include <vdso/datapage.h>
 #include <vdso/clocksource.h>
+#endif
 
 #ifndef MIDR_PARTNUM_SHIFT
 #define MIDR_PARTNUM_SHIFT 4
@@ -154,19 +156,6 @@ static int set_spoof_cpu(const struct ksu_set_spoof_cpu_cmd *cmd)
                     pr_warn("ksu: set_spoof_cpu failed to resolve vDSO time data\n");
                     ++missing;
                 }
-#else
-                struct vdso_data **vdso_data_ptr =
-                    (struct vdso_data **)find_kernel_symbol_exact("vdso_data");
-                if (vdso_data_ptr && *vdso_data_ptr) {
-                    struct vdso_data *vdso = *vdso_data_ptr;
-                    vdso[CS_HRES_COARSE].clock_mode =
-                        VDSO_CLOCKMODE_ARCHTIMER;
-                    vdso[CS_RAW].clock_mode = VDSO_CLOCKMODE_ARCHTIMER;
-                } else {
-                    pr_warn("ksu: set_spoof_cpu failed to resolve 'vdso_data'\n");
-                    ++missing;
-                }
-#endif
 
                 {
                     struct clocksource **curr_cs_ptr =
@@ -192,6 +181,9 @@ static int set_spoof_cpu(const struct ksu_set_spoof_cpu_cmd *cmd)
                         ++missing;
                     }
                 }
+
+
+#endif
 
                 {
                     unsigned long *caps =
