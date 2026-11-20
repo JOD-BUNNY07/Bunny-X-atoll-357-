@@ -1,107 +1,222 @@
-#!/bin/bash
-set -e
 
-WORKDIR=$(pwd)
+#!/bin/bash
+set -Eeuo pipefail
+
+# ============================================================
+# BUNNYBLADEX PERF - KAZESU BUILD SYSTEM
+# Realme 6 Pro (RMX2061) | ARM64 | Linux 4.14
+# ============================================================
+
+WORKDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$WORKDIR"
+
 OUT_DIR="$WORKDIR/out"
+TOOLCHAINS_DIR="$WORKDIR/toolchains"
+
+NEUTRON_TAG="${NEUTRON_TAG:-06092026}"
+NEUTRON_DIR="$TOOLCHAINS_DIR/neutron-clang-${NEUTRON_TAG}"
+NEUTRON_URL="https://github.com/Neutron-Toolchains/clang-build-catalogue/releases/download/${NEUTRON_TAG}/neutron-clang-${NEUTRON_TAG}.tar.zst"
+
 CLANG_REPO="https://gitlab.com/crdroidandroid/android_prebuilts_clang_host_linux-x86_clang-r547379.git"
-CLANG_DIR="$WORKDIR/toolchains/clang-r547379"
-BINUTILS_DIR="$WORKDIR/toolchains/llvm-binutils-stable"
+CLANG_DIR="$TOOLCHAINS_DIR/clang-r547379"
+BINUTILS_DIR="$TOOLCHAINS_DIR/llvm-binutils-stable"
+
 ANYKERNEL_DIR="$WORKDIR/AnyKernel3"
 
 DEVICE="RMX2061"
-DEFCONFIG="atoll_defconfig"
-KERNEL_NAME="BunnyBladeX-Perf-BakaSU"
+DEFCONFIG="${DEFCONFIG:-atoll_defconfig}"
+KERNEL_NAME="BunnyBladeX-Perf-KazeSU"
 VERSION="v1.0.0"
+BUILD_TYPE="${BUILD_TYPE:-Release}"
 
-DATE=$(date +%Y%m%d)
-TIME=$(date +%H%M)
+DATE="$(date +%Y%m%d)"
+TIME="$(date +%H%M)"
+
 ZIPNAME="${KERNEL_NAME}-${DEVICE}-${TIME}-${DATE}-${VERSION}.zip"
-
-# ========== EXPORT FULL NAME FOR ARTIFACT ==========
 KERNEL_FULL_NAME="${KERNEL_NAME}-${DEVICE}-${TIME}-${DATE}-${VERSION}"
-if [ -n "$GITHUB_ENV" ]; then
-    echo "KERNEL_FULL_NAME=${KERNEL_FULL_NAME}" >> "$GITHUB_ENV"
-fi
-# ===================================================
 
-# ===================== COLOURS =====================
+# ============================================================
+# COLORS
+# ============================================================
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
 CYAN='\033[0;36m'
-MAGENTA='\033[0;35m'
 WHITE='\033[1;37m'
-NC='\033[0m' # No Colour
-# ===================================================
+NC='\033[0m'
 
-# ===================== CCACHE =====================
+# ============================================================
+# ENVIRONMENT
+# ============================================================
+
+export ARCH=arm64
+export SUBARCH=arm64
+
 export USE_CCACHE=1
-export CCACHE_DIR="$WORKDIR/.ccache"
-mkdir -p "$CCACHE_DIR"
+export CCACHE_DIR="${CCACHE_DIR:-$WORKDIR/.ccache}"
+
+mkdir -p "$OUT_DIR" "$TOOLCHAINS_DIR" "$CCACHE_DIR"
+
 ccache -M 15G >/dev/null 2>&1 || true
 
-# ===================== TELEGRAM =====================
-BOT_TOKEN="${TELEGRAM_TOKEN}"
-CHAT_ID="${TELEGRAM_CHAT_ID}"
+if [[ -n "${GITHUB_ENV:-}" ]]; then
+    echo "KERNEL_FULL_NAME=$KERNEL_FULL_NAME" >> "$GITHUB_ENV"
+fi
+
+# ============================================================
+# TELEGRAM
+# ============================================================
+
+BOT_TOKEN="${TELEGRAM_TOKEN:-}"
+CHAT_ID="${TELEGRAM_CHAT_ID:-}"
 
 send_msg() {
     if [[ -n "$BOT_TOKEN" && -n "$CHAT_ID" ]]; then
-        curl -s -X POST \
-        "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-        -d chat_id="${CHAT_ID}" \
-        -d parse_mode=HTML \
-        -d text="$1" > /dev/null
+        curl -fsS -X POST \
+            "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${CHAT_ID}" \
+            -d "text=$1" >/dev/null || true
     fi
 }
 
 send_file() {
-    if [[ -n "$BOT_TOKEN" && -n "$CHAT_ID" ]]; then
-        curl -s -X POST \
-        "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
-        -F chat_id="${CHAT_ID}" \
-        -F document=@"$1" \
-        -F parse_mode=HTML \
-        -F caption="$2" > /dev/null
+    local file="$1"
+    local caption="$2"
+
+    if [[ -n "$BOT_TOKEN" && -n "$CHAT_ID" && -f "$file" ]]; then
+        curl -fsS -X POST \
+            "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
+            -F "chat_id=${CHAT_ID}" \
+            -F "document=@${file}" \
+            -F "caption=${caption}" >/dev/null || true
     fi
 }
 
-# ===================== TOOLCHAIN =====================
+# ============================================================
+# ERROR HANDLING
+# ============================================================
 
-echo ""
-echo -e "${CYAN}========================================${NC}"
-echo -e "${CYAN}    BUNNYX KERNEL BUILD SYSTEM${NC}"
-echo -e "${CYAN}========================================${NC}"
+on_error() {
+    local status=$?
+    echo -e "${RED}BUILD FAILED: exit code $status${NC}"
 
-mkdir -p "$WORKDIR/toolchains"
+    if [[ -f "$OUT_DIR/build.log" ]]; then
+        echo "========== LAST BUILD ERRORS =========="
+        tail -n 100 "$OUT_DIR/build.log"
+        send_file "$OUT_DIR/build.log" "KazeSU Build Error"
+    fi
 
-# ===== CLANG r547379 =====
+    send_msg "KazeSU Build Failed: exit code $status"
+    exit "$status"
+}
 
-if [ ! -d "$CLANG_DIR" ]; then
-    echo -e "${YELLOW}Downloading Clang r547379...${NC}"
-    git clone --depth=1 \
-"$CLANG_REPO" \
-"$CLANG_DIR"
+trap on_error ERR
+
+# ============================================================
+# BUILD INFORMATION
+# ============================================================
+
+echo -e "${CYAN}"
+echo "=========================================="
+echo "       BUNNYBLADEX PERF KAZESU"
+echo "=========================================="
+echo -e "${NC}"
+
+echo "Device:       $DEVICE"
+echo "Branch:       ${GITHUB_REF_NAME:-Local}"
+echo "Defconfig:    $DEFCONFIG"
+echo "Kernel:       $KERNEL_NAME"
+echo "Version:      $VERSION"
+echo "Build Type:   $BUILD_TYPE"
+echo "CPU Cores:    $(nproc)"
+echo "Date:         $(date)"
+echo
+
+# ============================================================
+# TOOLCHAIN - NEUTRON CLANG
+# ============================================================
+
+NEUTRON_BIN=""
+
+if [[ -x "$NEUTRON_DIR/bin/clang" ]]; then
+
+    NEUTRON_BIN="$NEUTRON_DIR/bin"
+    echo -e "${GREEN}Using cached Neutron Clang${NC}"
+
 else
-    echo -e "${GREEN}Using cached Clang r547379${NC}"
+
+    echo -e "${YELLOW}Downloading Neutron Clang $NEUTRON_TAG${NC}"
+
+    ARCHIVE="$TOOLCHAINS_DIR/neutron-clang-${NEUTRON_TAG}.tar.zst"
+    EXTRACT_DIR="$TOOLCHAINS_DIR/neutron-extract-${NEUTRON_TAG}"
+
+    rm -rf "$EXTRACT_DIR"
+    mkdir -p "$EXTRACT_DIR"
+
+    if curl -fL --retry 5 --retry-delay 5 \
+        --connect-timeout 20 \
+        -o "$ARCHIVE" "$NEUTRON_URL"; then
+
+        if tar --zstd -xf "$ARCHIVE" -C "$EXTRACT_DIR"; then
+
+            FOUND_CLANG="$(find "$EXTRACT_DIR" -maxdepth 6 \
+                \( -type f -o -type l \) \
+                -path '*/bin/clang' -print -quit)"
+
+            if [[ -n "$FOUND_CLANG" ]]; then
+
+                FOUND_ROOT="$(dirname "$(dirname "$FOUND_CLANG")")"
+
+                mkdir -p "$NEUTRON_DIR"
+
+                cp -a "$FOUND_ROOT/." "$NEUTRON_DIR/"
+
+                if [[ -x "$NEUTRON_DIR/bin/clang" ]]; then
+                    NEUTRON_BIN="$NEUTRON_DIR/bin"
+                fi
+            fi
+        fi
+    fi
+
+    rm -rf "$EXTRACT_DIR"
+    rm -f "$ARCHIVE"
 fi
 
-echo -e "${GREEN}Clang: r547379${NC}"
-# ===== LLVM BINUTILS (ORIGINAL) =====
-BINUTILS_DIR="$WORKDIR/toolchains/llvm-binutils-stable"
-if [ ! -d "$BINUTILS_DIR" ]; then
-    echo -e "${YELLOW}Downloading llvm-binutils-stable...${NC}"
-    git clone --depth=1 \
-    https://android.googlesource.com/toolchain/llvm-binutils-stable \
-    "$BINUTILS_DIR" 2>&1 | tail -1
+# ============================================================
+# FALLBACK CLANG
+# ============================================================
+
+if [[ -n "$NEUTRON_BIN" && -x "$NEUTRON_BIN/clang" ]]; then
+
+    TOOLCHAIN_BIN="$NEUTRON_BIN"
+    echo -e "${GREEN}Selected: Neutron Clang $NEUTRON_TAG${NC}"
+
 else
-    echo -e "${GREEN}Using cached binutils${NC}"
+
+    echo -e "${YELLOW}Neutron unavailable. Using fallback Clang.${NC}"
+
+    if [[ ! -d "$CLANG_DIR" ]]; then
+        git clone --depth=1 "$CLANG_REPO" "$CLANG_DIR"
+    fi
+
+    if [[ ! -x "$CLANG_DIR/bin/clang" ]]; then
+        echo "ERROR: Fallback Clang missing"
+        exit 1
+    fi
+
+    if [[ ! -d "$BINUTILS_DIR" ]]; then
+        git clone --depth=1 \
+            https://android.googlesource.com/toolchain/llvm-binutils-stable \
+            "$BINUTILS_DIR"
+    fi
+
+    export PATH="$BINUTILS_DIR/bin:$PATH"
+    TOOLCHAIN_BIN="$CLANG_DIR/bin"
+
 fi
 
-# ===== PATH SETUP (ORIGINAL) =====
-export PATH="$CLANG_DIR/bin:$BINUTILS_DIR/bin:$PATH"
-export ARCH=arm64
-export SUBARCH=arm64
+export PATH="$TOOLCHAIN_BIN:$PATH"
 
 export CC=clang
 export LD=ld.lld
@@ -111,165 +226,331 @@ export STRIP=llvm-strip
 export OBJCOPY=llvm-objcopy
 export OBJDUMP=llvm-objdump
 
-echo -e "${GREEN}Compiler ready${NC}"
+# ============================================================
+# COMPILER VALIDATION
+# ============================================================
 
-# ===================== BUILD INFO BOX (NEW) =====================
-echo ""
-echo -e "${CYAN}========================================${NC}"
-echo -e "${CYAN}    COMPILER INFORMATION${NC}"
-echo -e "${CYAN}========================================${NC}"
+for tool in clang ld.lld llvm-ar llvm-nm llvm-strip llvm-objcopy llvm-objdump gcc g++; do
 
-CLANG_VER=$("$CLANG_DIR/bin/clang" --version | head -n1)
-echo -e "${GREEN}Clang: ${CLANG_VER}${NC}"
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo -e "${RED}Missing required tool: $tool${NC}"
+        exit 1
+    fi
 
-GCC_VER=$(aarch64-linux-gnu-gcc --version | head -n1)
-echo -e "${GREEN}GCC:   ${GCC_VER}${NC}"
-
-LD_VER=$(ld.lld --version | head -n1)
-echo -e "${GREEN}LD:    ${LD_VER}${NC}"
-
-echo ""
-echo -e "${CYAN}========================================${NC}"
-echo -e "${CYAN}    BUILD CONFIGURATION${NC}"
-echo -e "${CYAN}========================================${NC}"
-echo -e "${WHITE}Device:     ${DEVICE}${NC}"
-echo -e "${WHITE}Defconfig:  ${DEFCONFIG}${NC}"
-echo -e "${WHITE}Name:       ${KERNEL_NAME}${NC}"
-echo -e "${WHITE}Version:    ${VERSION}${NC}"
-echo -e "${WHITE}Type:       ${BUILD_TYPE}${NC}"
-echo -e "${WHITE}Output:     ${ZIPNAME}${NC}"
-echo -e "${WHITE}Date:       $(date '+%Y-%m-%d %H:%M:%S')${NC}"
-echo -e "${WHITE}Host:       $(uname -n) | $(nproc) cores${NC}"
-echo -e "${CYAN}========================================${NC}"
-
-# ===================== ANYKERNEL3 =====================
-if [ ! -d "$ANYKERNEL_DIR" ]; then
-    echo -e "${YELLOW}Cloning AnyKernel3...${NC}"
-    git clone --depth=1 --branch master \
-    https://github.com/JOD-BUNNY07/AnyKernel3.git \
-    "$ANYKERNEL_DIR"
-fi
-
-# ===================== BUILD START =====================
-START=$(date +%s)
-
-send_msg "Build Started
-${DEVICE} | $(nproc) cores | ~10min"
-
-echo ""
-echo -e "${CYAN}========================================${NC}"
-echo -e "${CYAN}    BUILDING${NC}"
-echo -e "${CYAN}========================================${NC}"
-
-# Minimal cleanup
-rm -f "$ANYKERNEL_DIR/zImage" "$ANYKERNEL_DIR"/*.zip
-
-# Update config
-mkdir -p "$OUT_DIR"
-make O="$OUT_DIR" ARCH=arm64 "$DEFCONFIG" > /dev/null 2>&1
-make O="$OUT_DIR" ARCH=arm64 olddefconfig > /dev/null 2>&1
-
-# Install UAPI headers required by KernelSU Preinit
-echo "========== INSTALL KSU PREINIT UAPI =========="
-
-make O="$OUT_DIR" ARCH=arm64 \
-    headers_install \
-    INSTALL_HDR_PATH="$OUT_DIR/usr" || exit 1
-
-# Verify required header
-if [ ! -f "$OUT_DIR/usr/include/linux/unstd.h" ]; then
-    echo "ERROR: KernelSU Preinit UAPI header missing!"
-    exit 1
-fi
-
-echo "Preinit UAPI header: FOUND"
-
-# Build with max parallelization
-JOBS=$(($(nproc) * 2))
-
-if ! make -j$JOBS \
-O="$OUT_DIR" \
-ARCH=arm64 \
-CC=clang \
-HOSTCC=gcc \
-HOSTCXX=g++ \
-LD=ld.lld \
-LLVM=1 \
-LLVM_IAS=1 \
-CLANG_TRIPLE=aarch64-linux-gnu- \
-CROSS_COMPILE=aarch64-linux-gnu- \
-2>&1 | tee "$OUT_DIR/build.log"; then
-
-    echo -e "${RED}Build Failed${NC}"
-    send_msg "Build Failed"
-    send_file "$OUT_DIR/build.log" "Error Log"
-    exit 1
-fi
-
-# Kernel FCM level 7 (Android 17, 4.14) requirements checked by the ROM's VINTF step.
-required_configs=(
-  CONFIG_AS_IS_LLVM CONFIG_CC_IS_CLANG CONFIG_CFI_CLANG CONFIG_HIDRAW
-  CONFIG_HID_PLAYSTATION CONFIG_KFENCE CONFIG_LD_IS_LLD CONFIG_NET_ACT_BPF
-  CONFIG_NET_ACT_POLICE CONFIG_NET_CLS_MATCHALL CONFIG_NET_SCH_TBF
-  CONFIG_PLAYSTATION_FF CONFIG_RD_LZ4 CONFIG_SHADOW_CALL_STACK
-  CONFIG_SECURITY_NETWORK CONFIG_SECURITY_SELINUX
-  CONFIG_CGROUPS CONFIG_CGROUP_SCHED CONFIG_FAIR_GROUP_SCHED
-)
-for config in "${required_configs[@]}"; do
-  if ! grep -qx "$config=y" "$OUT_DIR/.config"; then
-    echo -e "\n❌ \033[1;31mRequired kernel config missing: $config\033[0m"
-    exit 1
-  fi
 done
 
-# ===================== IMAGE CHECK =====================
-IMG="$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
+echo
+echo "========== COMPILER INFORMATION =========="
 
-if [ ! -f "$IMG" ]; then
-    echo -e "${RED}Image not found${NC}"
-    send_msg "Image Missing"
+clang --version | sed -n '1p'
+ld.lld --version | sed -n '1p'
+
+if command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
+    aarch64-linux-gnu-gcc --version | sed -n '1p'
+else
+    echo "Cross GCC: Not installed (LLVM target tools selected)"
+fi
+
+# ============================================================
+# ANYKERNEL3
+# ============================================================
+
+if [[ ! -d "$ANYKERNEL_DIR" ]]; then
+
+    git clone --depth=1 --branch master \
+        https://github.com/JOD-BUNNY07/AnyKernel3.git \
+        "$ANYKERNEL_DIR"
+
+fi
+
+# ============================================================
+# BUILD START
+# ============================================================
+
+START="$(date +%s)"
+
+send_msg "KazeSU Build Started
+Device: $DEVICE
+Defconfig: $DEFCONFIG
+Compiler: $(clang --version | sed -n '1p')"
+
+echo
+echo -e "${CYAN}========== KAZESU BUILD START ==========${NC}"
+
+# ============================================================
+# CLEAN STALE OUTPUT
+# ============================================================
+
+rm -f "$ANYKERNEL_DIR/zImage"
+rm -f "$ANYKERNEL_DIR"/*.zip
+
+rm -f "$OUT_DIR/arch/arm64/boot/Image"
+rm -f "$OUT_DIR/arch/arm64/boot/Image.gz"
+rm -f "$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
+
+# Force KazeSU composite object to relink.
+rm -f "$OUT_DIR/drivers/kernelsu/kernelsu.o"
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+echo
+echo "========== GENERATING CONFIG =========="
+
+if ! make O="$OUT_DIR" ARCH=arm64 "$DEFCONFIG" \
+    >"$OUT_DIR/config.log" 2>&1; then
+
+    cat "$OUT_DIR/config.log"
     exit 1
 fi
 
-echo -e "${GREEN}Image: $(du -h "$IMG" | cut -f1)${NC}"
+if ! make O="$OUT_DIR" ARCH=arm64 olddefconfig \
+    >>"$OUT_DIR/config.log" 2>&1; then
 
-# ===================== PACKAGING =====================
-echo ""
-echo -e "${CYAN}========================================${NC}"
-echo -e "${CYAN}    PACKAGING${NC}"
-echo -e "${CYAN}========================================${NC}"
+    cat "$OUT_DIR/config.log"
+    exit 1
+fi
+
+# ============================================================
+# KAZESU CONFIG VALIDATION
+# ============================================================
+
+CONFIG="$OUT_DIR/.config"
+
+echo
+echo "========== KAZESU CONFIG VALIDATION =========="
+
+for config in \
+    CONFIG_KSU \
+    CONFIG_KPROBES \
+    CONFIG_EXT4_FS; do
+
+    if ! grep -qx "${config}=y" "$CONFIG"; then
+
+        echo -e "${RED}ERROR: ${config}=y is required${NC}"
+        grep -n "$config" "$CONFIG" || true
+        exit 1
+
+    fi
+
+    echo -e "${GREEN}[OK] ${config}=y${NC}"
+
+done
+
+echo
+echo "========== KAZESU CONFIGURATION =========="
+
+grep -E '^CONFIG_(KSU|KPROBES|HAVE_KPROBES|EXT4_FS|KSU_MULTI_MANAGER_SUPPORT)=' \
+    "$CONFIG" || true
+
+# ============================================================
+# BUILD
+# ============================================================
+
+echo
+echo -e "${CYAN}========== COMPILING KERNEL ==========${NC}"
+
+JOBS="$(nproc)"
+
+if [[ "$JOBS" -lt 2 ]]; then
+    JOBS=2
+fi
+
+if ! make -j"$JOBS" \
+    O="$OUT_DIR" \
+    ARCH=arm64 \
+    CC=clang \
+    HOSTCC=gcc \
+    HOSTCXX=g++ \
+    LD=ld.lld \
+    AR=llvm-ar \
+    NM=llvm-nm \
+    OBJCOPY=llvm-objcopy \
+    OBJDUMP=llvm-objdump \
+    STRIP=llvm-strip \
+    LLVM=1 \
+    LLVM_IAS=1 \
+    CLANG_TRIPLE=aarch64-linux-gnu- \
+    CROSS_COMPILE=aarch64-linux-gnu- \
+    2>&1 | tee "$OUT_DIR/build.log"; then
+
+    echo -e "${RED}Kernel compilation failed${NC}"
+    exit 1
+
+fi
+
+# ============================================================
+# KAZESU OBJECT VALIDATION
+# ============================================================
+
+echo
+echo "========== KAZESU OBJECT VALIDATION =========="
+
+KSU_OBJECT="$OUT_DIR/drivers/kernelsu/kernelsu.o"
+
+if [[ ! -s "$KSU_OBJECT" ]]; then
+
+    echo -e "${RED}ERROR: KazeSU kernelsu.o missing!${NC}"
+
+    find "$OUT_DIR/drivers/kernelsu" -maxdepth 2 \
+        -type f -name '*.o' 2>/dev/null || true
+
+    exit 1
+
+fi
+
+echo -e "${GREEN}[OK] KazeSU kernelsu.o generated${NC}"
+ls -lh "$KSU_OBJECT"
+
+# ============================================================
+# FINAL KERNEL VALIDATION
+# ============================================================
+
+echo
+echo "========== FINAL KERNEL VALIDATION =========="
+
+VMLINUX="$OUT_DIR/vmlinux"
+IMG="$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
+
+if [[ ! -s "$VMLINUX" ]]; then
+    echo -e "${RED}ERROR: vmlinux missing${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}[OK] vmlinux generated${NC}"
+ls -lh "$VMLINUX"
+
+if [[ ! -s "$IMG" ]]; then
+    echo -e "${RED}ERROR: Image.gz-dtb missing${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}[OK] Image.gz-dtb generated${NC}"
+ls -lh "$IMG"
+
+# ============================================================
+# FINAL CONFIG CHECK
+# ============================================================
+
+required_configs=(
+    CONFIG_AS_IS_LLVM
+    CONFIG_CC_IS_CLANG
+    CONFIG_CFI_CLANG
+    CONFIG_HIDRAW
+    CONFIG_HID_PLAYSTATION
+    CONFIG_KFENCE
+    CONFIG_LD_IS_LLD
+    CONFIG_NET_ACT_BPF
+    CONFIG_NET_ACT_POLICE
+    CONFIG_NET_CLS_MATCHALL
+    CONFIG_NET_SCH_TBF
+    CONFIG_PLAYSTATION_FF
+    CONFIG_RD_LZ4
+    CONFIG_SHADOW_CALL_STACK
+    CONFIG_SECURITY_NETWORK
+    CONFIG_SECURITY_SELINUX
+    CONFIG_CGROUPS
+    CONFIG_CGROUP_SCHED
+    CONFIG_FAIR_GROUP_SCHED
+)
+
+echo
+echo "========== FCM CONFIG VALIDATION =========="
+
+for config in "${required_configs[@]}"; do
+
+    if ! grep -qx "${config}=y" "$CONFIG"; then
+
+        echo -e "${RED}Missing required config: ${config}${NC}"
+        exit 1
+
+    fi
+
+    echo "[OK] $config"
+
+done
+
+# ============================================================
+# PACKAGING
+# ============================================================
+
+echo
+echo -e "${CYAN}========== PACKAGING ==========${NC}"
 
 cp "$IMG" "$ANYKERNEL_DIR/zImage"
 
 cd "$ANYKERNEL_DIR"
-zip -r9q "$ZIPNAME" * -x ".git*" README.md "*.zip"
 
-ZIP_SIZE=$(du -h "$ZIPNAME" | cut -f1)
-echo -e "${GREEN}ZIP: $ZIP_SIZE${NC}"
+zip -r9q "$ZIPNAME" * \
+    -x ".git*" \
+    -x "README.md" \
+    -x "*.zip"
 
-# ===================== FINISH =====================
-END=$(date +%s)
+ZIP_PATH="$ANYKERNEL_DIR/$ZIPNAME"
+
+if [[ ! -s "$ZIP_PATH" ]]; then
+    echo "ERROR: Kernel ZIP missing"
+    exit 1
+fi
+
+ZIP_SIZE="$(du -h "$ZIP_PATH" | cut -f1)"
+
+echo -e "${GREEN}ZIP generated: $ZIPNAME${NC}"
+echo "Size: $ZIP_SIZE"
+
+# ============================================================
+# BUILD COMPLETE
+# ============================================================
+
+END="$(date +%s)"
 DIFF=$((END - START))
+
 MINS=$((DIFF / 60))
 SECS=$((DIFF % 60))
 
-echo ""
-echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}    BUILD COMPLETE!${NC}"
-echo -e "${GREEN}========================================${NC}"
-echo -e "${WHITE}Output: ${ZIPNAME}${NC}"
-echo -e "${WHITE}Size:   ${ZIP_SIZE}${NC}"
-echo -e "${WHITE}Time:   ${MINS}m ${SECS}s${NC}"
-echo -e "${GREEN}========================================${NC}"
+echo
+echo -e "${GREEN}=========================================="
+echo "          KAZESU BUILD SUCCESS"
+echo "==========================================${NC}"
 
-send_file "$ANYKERNEL_DIR/$ZIPNAME" \
+echo "Kernel: $KERNEL_NAME"
+echo "Device: $DEVICE"
+echo "Version: $VERSION"
+echo "ZIP: $ZIPNAME"
+echo "Size: $ZIP_SIZE"
+echo "Time: ${MINS}m ${SECS}s"
+
+# ============================================================
+# TELEGRAM SUCCESS
+# ============================================================
+
+send_file "$ZIP_PATH" \
 "Build Success
 
-${ZIPNAME}
-Size: ${ZIP_SIZE}
+Kernel: $KERNEL_NAME
+Device: $DEVICE
+Version: $VERSION
+ZIP: $ZIPNAME
+Size: $ZIP_SIZE
 Time: ${MINS}m ${SECS}s"
 
-# Move to out for artifact
-mv "$ANYKERNEL_DIR/$ZIPNAME" "$OUT_DIR/"
+# ============================================================
+# GITHUB ARTIFACT OUTPUT
+# ============================================================
 
-echo -e "${GREEN}Zip saved to: ${OUT_DIR}/${ZIPNAME}${NC}"
+mv "$ZIP_PATH" "$OUT_DIR/"
+
+echo
+echo -e "${GREEN}Artifact ready:${NC}"
+echo "$OUT_DIR/$ZIPNAME"
+
+echo
+echo "========== FINAL KAZESU STATUS =========="
+echo "CONFIG_KSU: $(grep '^CONFIG_KSU=' "$CONFIG")"
+echo "KSU_OBJECT: PRESENT"
+echo "VMLINUX: PRESENT"
+echo "IMAGE: PRESENT"
+echo "ZIP: PRESENT"
+echo
+echo -e "${GREEN}BUILD COMPLETED SUCCESSFULLY${NC}"
