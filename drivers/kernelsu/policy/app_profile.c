@@ -103,7 +103,6 @@ static void disable_seccomp(void)
 
     current->seccomp.mode = 0;
     current->seccomp.filter = NULL;
-    atomic_set(&current->seccomp.filter_count, 0);
     spin_unlock_irq(&current->sighand->siglock);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
