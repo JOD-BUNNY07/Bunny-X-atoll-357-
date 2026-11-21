@@ -1,9 +1,12 @@
 #ifndef __KSU_H_KSU_SYSCALL_HOOK
 #define __KSU_H_KSU_SYSCALL_HOOK
 #include <asm/syscall.h>
+#include <linux/linkage.h>
 
 #if defined(__x86_64__)
 typedef sys_call_ptr_t syscall_fn_t;
+#elif defined(CONFIG_ARM64)
+typedef asmlinkage long (*syscall_fn_t)(const struct pt_regs *);
 #elif defined(__riscv)
 typedef long (*syscall_fn_t)(const struct pt_regs *);
 #endif

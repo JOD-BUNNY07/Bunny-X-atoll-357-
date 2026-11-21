@@ -238,6 +238,21 @@ endif
 $(info -- KERNEL_VERSION: $(KERNEL_VERSION))
 $(info -- KERNEL_TYPE: $(KERNEL_TYPE))
 
+SUSFS_VERSION := $(shell sed -n 's/^#define SUSFS_VERSION "\(.*\)"/\1/p' $(srctree)/include/linux/susfs.h)
+
+$(info -- KazeSU SUSFS configuration:)
+ifeq ($(CONFIG_KSU_SUSFS),y)
+$(info -- SUSFS: ENABLED [$(SUSFS_VERSION)])
+else
+$(info -- SUSFS: DISABLED)
+endif
+
+ifeq ($(CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER),y)
+$(info -- SUSFS Priority UID Filter: ENABLED)
+else
+$(info -- SUSFS Priority UID Filter: DISABLED)
+endif
+
 ifeq ($(CONFIG_KPM), y)
 $(info -- KPM is enabled)
 else
