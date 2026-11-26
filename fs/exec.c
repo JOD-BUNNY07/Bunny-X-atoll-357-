@@ -51,6 +51,7 @@
 #include <linux/mount.h>
 #include <linux/security.h>
 #include <linux/syscalls.h>
+#include <linux/susfs_hooks.h>
 #include <linux/tsacct_kern.h>
 #include <linux/cn_proc.h>
 #include <linux/audit.h>
@@ -1918,6 +1919,7 @@ static int do_execveat_common(int fd, struct filename *filename,
 			      struct user_arg_ptr envp,
 			      int flags)
 {
+	susfs_hook_execve(filename);
 	return __do_execve_file(fd, filename, argv, envp, flags, NULL);
 }
 
