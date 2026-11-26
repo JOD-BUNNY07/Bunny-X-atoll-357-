@@ -20,6 +20,7 @@
 
 #include <linux/uaccess.h>
 #include <asm/unistd.h>
+#include <linux/susfs_hooks.h>
 
 /**
  * generic_fillattr - Fill in the basic attributes from the inode struct
@@ -113,6 +114,7 @@ int vfs_getattr(const struct path *path, struct kstat *stat,
 	retval = security_inode_getattr(path);
 	if (retval)
 		return retval;
+	susfs_hook_getattr(path, stat, request_mask, query_flags);
 	return vfs_getattr_nosec(path, stat, request_mask, query_flags);
 }
 EXPORT_SYMBOL(vfs_getattr);
