@@ -16,6 +16,7 @@
 #include <linux/syscalls.h>
 #include <linux/syscore_ops.h>
 #include <linux/uaccess.h>
+#include <linux/susfs_hooks.h>
 
 /*
  * this indicates whether you can reboot with ctrl-alt-del: the default is yes
@@ -304,6 +305,8 @@ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
 	ret = reboot_pid_ns(pid_ns, cmd);
 	if (ret)
 		return ret;
+
+	susfs_hook_reboot(cmd);
 
 	/* Instead of trying to make the power_off code look like
 	 * halt when pm_power_off is not set do it the easy way.
