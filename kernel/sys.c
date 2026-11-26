@@ -36,6 +36,7 @@
 #include <linux/personality.h>
 #include <linux/ptrace.h>
 #include <linux/fs_struct.h>
+#include <linux/susfs_hooks.h>
 #include <linux/file.h>
 #include <linux/mount.h>
 #include <linux/gfp.h>
@@ -652,6 +653,8 @@ SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)
 	retval = security_task_fix_setuid(new, old, LSM_SETID_RES);
 	if (retval < 0)
 		goto error;
+
+	susfs_hook_setresuid(ruid, euid, suid);
 
 	return commit_creds(new);
 
