@@ -33,6 +33,7 @@
 #include <linux/compat.h>
 
 #include "internal.h"
+#include <linux/susfs_hooks.h>
 
 int do_truncate2(struct vfsmount *mnt, struct dentry *dentry, loff_t length,
 		unsigned int time_attrs, struct file *filp)
@@ -371,6 +372,8 @@ SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
 
 	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
 		return -EINVAL;
+
+	susfs_hook_faccessat(dfd, filename, mode);
 
 	override_cred = prepare_creds();
 	if (!override_cred)
