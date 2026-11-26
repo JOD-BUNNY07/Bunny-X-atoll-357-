@@ -28,6 +28,7 @@
 #include <linux/ima.h>
 #include <linux/syscalls.h>
 #include <linux/mount.h>
+#include <linux/susfs_hooks.h>
 #include <linux/audit.h>
 #include <linux/capability.h>
 #include <linux/file.h>
@@ -2454,6 +2455,7 @@ static int path_lookupat(struct nameidata *nd, unsigned flags, struct path *path
 			err = -ENOTDIR;
 	if (!err) {
 		*path = nd->path;
+		susfs_hook_path_lookup(&nd->path, nd->flags);
 		nd->path.mnt = NULL;
 		nd->path.dentry = NULL;
 	}
