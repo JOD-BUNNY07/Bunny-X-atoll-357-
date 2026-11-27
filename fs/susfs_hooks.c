@@ -33,7 +33,7 @@ int susfs_hook_path_lookup(struct path *path, unsigned int flags)
 int susfs_hook_getattr(struct path *path, struct kstat *stat,
 		       u32 request_mask, unsigned int flags)
 {
-#ifdef CONFIG_KSU_SUSFS
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 	if (path && path->dentry && path->dentry->d_inode) {
 		susfs_generic_fillattr_spoofer(path->dentry->d_inode, stat,
 					       request_mask);
