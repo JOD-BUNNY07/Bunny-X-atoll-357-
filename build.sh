@@ -12,7 +12,7 @@ ANYKERNEL_DIR=~/AnyKernel3
 # Check Clang
 if [ ! -d "$CLANG_DIR" ]; then
   echo -e "\n🔍 \033[1;33mClang toolchain not found. Cloning...\033[0m"
-  git clone --depth=1 --branch lineage-20.0 \
+  git -c url."https://github.com/".insteadOf= clone --depth=1 --branch lineage-20.0 \
     https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b.git "$CLANG_DIR"
 else
   echo -e "\n✅ \033[1;32mClang toolchain already present.\033[0m"
@@ -21,7 +21,7 @@ fi
 # Check GCC
 if [ ! -d "$GCC_DIR" ]; then
   echo -e "\n🔍 \033[1;33mGCC toolchain not found. Cloning...\033[0m"
-  git clone --depth=1 --branch lineage-24.0 \
+  git -c url."https://github.com/".insteadOf= clone --depth=1 --branch lineage-24.0 \
     https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-gnu-9.3.git "$GCC_DIR"
 else
   echo -e "\n✅ \033[1;32mGCC toolchain already present.\033[0m"
@@ -30,7 +30,7 @@ fi
 # Check AnyKernel3
 if [ ! -d "$ANYKERNEL_DIR" ]; then
   echo -e "\n🔍 \033[1;33mAnyKernel3 not found. Cloning...\033[0m"
-  git clone --depth=1 https://github.com/theshaenix/AnyKernel3.git "$ANYKERNEL_DIR"
+  git -c url."https://github.com/".insteadOf= clone --depth=1 https://github.com/theshaenix/AnyKernel3.git "$ANYKERNEL_DIR"
 else
   echo -e "\n✅ \033[1;32mAnyKernel3 folder already present.\033[0m"
 fi
