@@ -6,8 +6,20 @@ on:
       - astra
       - mcqueen-ksu
       - mcqueen
+      - bunny-x-zenith-bakasu
   pull_request:
   workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build'
+        required: true
+        default: 'bunny-x-zenith-bakasu'
+        type: choice
+        options:
+          - bunny-x-zenith-bakasu
+          - astra
+          - mcqueen-ksu
+          - mcqueen
 
 jobs:
   build:
@@ -16,12 +28,14 @@ jobs:
       contents: read
     env:
       CCACHE_DIR: ~/.ccache
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
 
       - name: Install dependencies
         run: |
