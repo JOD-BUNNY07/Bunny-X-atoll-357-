@@ -61,7 +61,7 @@ export OUT_DIR=out
 export PATH=$CLANG_PATH/bin:$GCC_PATH/bin:$PATH
 export ARCH=arm64
 export CLANG_TRIPLE=aarch64-linux-gnu-
-export CROSS_COMPILE=aarch64-linux-
+export CROSS_COMPILE=aarch64-linux-gnu-
 
 # Allow constrained builders to lower parallelism without editing this script.
 JOBS="${JOBS:-$(nproc)}"
@@ -96,7 +96,7 @@ ccache -C > /dev/null 2>&1
 
 echo -e "\n🔧 \033[1;36mCompiler Info:\033[0m"
 clang --version | head -n 1
-aarch64-linux-gcc --version | head -n 1
+aarch64-linux-gnu-gcc --version | head -n 1
 
 echo -e "\n📱 \033[1;32mTarget Device: $DEVICE\033[0m"
 echo -e "🧵 \033[1;36mParallel build jobs: $JOBS\033[0m"
@@ -104,7 +104,7 @@ echo -e "🧵 \033[1;36mParallel build jobs: $JOBS\033[0m"
 # =====================[ DEFCONFIG ]=====================
 
 echo -e "\n📄 \033[1;36mSetting up defconfig...\033[0m"
-make O=$OUT_DIR ARCH=arm64 LLVM=1 LLVM_IAS=1 atoll_defconfig
+make O=$OUT_DIR ARCH=arm64 LLVM=1 LLVM_IAS=1 CC=clang LD=ld.lld atoll_defconfig
 
 if [ $? -ne 0 ]; then
   echo -e "\n❌ \033[1;31mDefconfig failed. Exiting.\033[0m"
