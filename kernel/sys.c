@@ -2792,3 +2792,9 @@ COMPAT_SYSCALL_DEFINE1(sysinfo, struct compat_sysinfo __user *, info)
 	return 0;
 }
 #endif /* CONFIG_COMPAT */
+
+/* BakaSU SuSFS inline hook stubs */
+static int ksu_handle_setresuid(uid_t ruid, uid_t euid, uid_t suid)
+{
+	return 0;
+}

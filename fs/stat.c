@@ -730,3 +730,14 @@ void inode_set_bytes(struct inode *inode, loff_t bytes)
 }
 
 EXPORT_SYMBOL(inode_set_bytes);
+
+/* BakaSU SuSFS inline hook stubs */
+static int ksu_handle_stat(int dfd, const char __user *filename, struct stat __user *statbuf)
+{
+	return 0;
+}
+
+static int ksu_handle_vfs_fstat(int fd, struct kstat *stat)
+{
+	return 0;
+}

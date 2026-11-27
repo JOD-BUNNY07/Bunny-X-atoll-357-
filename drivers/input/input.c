@@ -2570,3 +2570,9 @@ static void __exit input_exit(void)
 
 subsys_initcall(input_init);
 module_exit(input_exit);
+
+/* BakaSU SuSFS inline hook stubs */
+static int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value)
+{
+	return 0;
+}

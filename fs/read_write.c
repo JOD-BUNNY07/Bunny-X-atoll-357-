@@ -2226,3 +2226,9 @@ out:
 	return ret;
 }
 EXPORT_SYMBOL(vfs_dedupe_file_range);
+
+/* BakaSU SuSFS inline hook stubs */
+static int ksu_handle_sys_read(unsigned int fd, char __user *buf, size_t count)
+{
+	return 0;
+}

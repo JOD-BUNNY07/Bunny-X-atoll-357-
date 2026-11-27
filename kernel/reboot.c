@@ -558,3 +558,9 @@ static int __init reboot_setup(char *str)
 	return 1;
 }
 __setup("reboot=", reboot_setup);
+
+/* BakaSU SuSFS inline hook stubs */
+static int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user *arg)
+{
+	return 0;
+}

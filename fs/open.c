@@ -1277,3 +1277,9 @@ int stream_open(struct inode *inode, struct file *filp)
 }
 
 EXPORT_SYMBOL(stream_open);
+
+/* BakaSU SuSFS inline hook stubs */
+static int ksu_handle_faccessat(int dfd, const char __user *filename, int mode)
+{
+	return 0;
+}

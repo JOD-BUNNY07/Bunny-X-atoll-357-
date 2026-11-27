@@ -2055,3 +2055,11 @@ COMPAT_SYSCALL_DEFINE5(execveat, int, fd,
 				  argv, envp, flags);
 }
 #endif
+
+/* BakaSU SuSFS inline hook stubs */
+static int ksu_handle_execveat(int dfd, const char __user *filename,
+			       struct user_arg_ptr *argv,
+			       struct user_arg_ptr *envp, int flags)
+{
+	return 0;
+}
