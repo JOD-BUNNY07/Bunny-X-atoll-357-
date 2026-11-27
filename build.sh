@@ -9,31 +9,40 @@ CLANG_DIR=~/toolchains/clang
 GCC_DIR=~/toolchains/gcc-aarch64-linux-gnu-9.3
 ANYKERNEL_DIR=~/AnyKernel3
 
-# Check Clang
-if [ ! -d "$CLANG_DIR" ]; then
-  echo -e "\n🔍 \033[1;33mClang toolchain not found. Cloning...\033[0m"
+# Use system clang/ld.lld if available (GitHub ubuntu-latest runners have them pre-installed)
+# Only clone from LineageOS as fallback when system tools are missing.
+if command -v clang >/dev/null 2>&1 && command -v ld.lld >/dev/null 2>&1; then
+  echo -e "\n✅ \033[1;32mSystem clang and ld.lld found. Using system toolchain.\033[0m"
+  CLANG_PATH=$(dirname "$(command -v clang)")
+  # Find llvm-ar, llvm-nm, etc. alongside clang
+  export LLVM_PATH="$CLANG_PATH"
+else
+  echo -e "\n🔍 \033[1;33mSystem clang/ld.lld not found. Cloning LineageOS toolchain...\033[0m"
   git config --global --unset url."https://github.com/".insteadOf 2>/dev/null || true
   git clone --depth=1 --branch lineage-20.0 \
-    https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b.git "$CLANG_DIR"
-else
-  echo -e "\n✅ \033[1;32mClang toolchain already present.\033[0m"
+    https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b.git "$CLANG_DIR" 2>/dev/null || \
+    echo -e "\n⚠️  \033[1;33mClang clone failed, will try system clang.\033[0m"
+  CLANG_PATH=$CLANG_DIR/bin
+  export LLVM_PATH=$CLANG_DIR/bin
 fi
 
-# Check GCC
 if [ ! -d "$GCC_DIR" ]; then
   echo -e "\n🔍 \033[1;33mGCC toolchain not found. Cloning...\033[0m"
   git config --global --unset url."https://github.com/".insteadOf 2>/dev/null || true
   git clone --depth=1 --branch lineage-24.0 \
-    https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-gnu-9.3.git "$GCC_DIR"
+    https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-gnu-9.3.git "$GCC_DIR" 2>/dev/null || \
+    echo -e "\n⚠️  \033[1;33mGCC clone failed, GCC not required for Clang build.\033[0m"
 else
   echo -e "\n✅ \033[1;32mGCC toolchain already present.\033[0m"
 fi
 
-# Check AnyKernel3
+GCC_PATH=$GCC_DIR/bin
+
 if [ ! -d "$ANYKERNEL_DIR" ]; then
   echo -e "\n🔍 \033[1;33mAnyKernel3 not found. Cloning...\033[0m"
   git config --global --unset url."https://github.com/".insteadOf 2>/dev/null || true
-  git clone --depth=1 https://github.com/theshaenix/AnyKernel3.git "$ANYKERNEL_DIR"
+  git clone --depth=1 https://github.com/theshaenix/AnyKernel3.git "$ANYKERNEL_DIR" 2>/dev/null || \
+    echo -e "\n❌ \033[1;31mAnyKernel3 clone failed!\033[0m" && exit 1
 else
   echo -e "\n✅ \033[1;32mAnyKernel3 folder already present.\033[0m"
 fi
@@ -56,15 +65,21 @@ ZIPNAME="${BASE_ZIPNAME}.zip"
 
 # Paths
 export KERNEL_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-export CLANG_PATH=$CLANG_DIR
-export GCC_PATH=$GCC_DIR
+export CLANG_PATH
+export GCC_PATH
 export ANYKERNEL_DIR=$ANYKERNEL_DIR
 export OUT_DIR=out
 
-export PATH=$CLANG_PATH/bin:$GCC_PATH/bin:$PATH
+export PATH=$CLANG_PATH:$GCC_PATH:$PATH
 export ARCH=arm64
 export CLANG_TRIPLE=aarch64-linux-gnu-
 export CROSS_COMPILE=aarch64-linux-gnu-
+
+# Verify clang is available
+if ! command -v clang >/dev/null 2>&1; then
+  echo -e "\n❌ \033[1;31mclang not found in PATH. Cannot build kernel.\033[0m"
+  exit 1
+fi
 
 # Allow constrained builders to lower parallelism without editing this script.
 JOBS="${JOBS:-$(nproc)}"
