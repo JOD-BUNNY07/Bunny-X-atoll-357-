@@ -66,9 +66,9 @@ LOCAL_GIT_EXISTS := $(shell test -e $(KSU_SRC)/.git && echo 1 || echo 0)
 
 ifeq ($(LOCAL_GIT_EXISTS),0)
 $(info -- $(REPO_NAME) not found as git submodule, using direct copy)
-KSU_LOCAL_VERSION := 0
-KSU_VERSION := 30700
-KSU_TAG_NAME := v4.1.0-direct
+KSU_LOCAL_VERSION := 4586
+KSU_VERSION := 35286
+KSU_TAG_NAME := v4.2.0-rc3
 KSU_COMMIT_SHA := direct-copy
 KSU_BRANCH_NAME := direct-copy
 KSU_VERSION_FULL := direct-copy

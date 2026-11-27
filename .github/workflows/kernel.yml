@@ -67,9 +67,9 @@ jobs:
         id: artifact
         run: |
           shopt -s nullglob
-          ZIP_FILES=(~/AnyKernel3/*.zip)
+          ZIP_FILES=(out/*.zip)
           if [ ${#ZIP_FILES[@]} -eq 0 ]; then
-            echo "No zip artifact found in ~/AnyKernel3."
+            echo "No zip artifact found in out/."
             exit 1
           fi
           ZIP_PATH="$(ls -t "${ZIP_FILES[@]}" | head -n 1)"

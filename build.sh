@@ -1,183 +1,299 @@
 #!/bin/bash
+set -e
 
-# ============================================================
-# Pre-build checks for required toolchains and AnyKernel3
-# ============================================================
+WORKDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$WORKDIR" || exit 1
+OUT_DIR="$WORKDIR/out"
+NEUTRON_TAG="${NEUTRON_TAG:-06092026}"
+NEUTRON_DIR="$WORKDIR/toolchains/neutron-clang-${NEUTRON_TAG}"
+NEUTRON_URL="https://github.com/Neutron-Toolchains/clang-build-catalogue/releases/download/${NEUTRON_TAG}/neutron-clang-${NEUTRON_TAG}.tar.zst"
 
-# Paths
-CLANG_DIR=~/toolchains/clang
-GCC_DIR=~/toolchains/gcc-aarch64-linux-gnu-9.3
-ANYKERNEL_DIR=~/AnyKernel3
+# Fallback compiler
+CLANG_REPO="https://gitlab.com/crdroidandroid/android_prebuilts_clang_host_linux-x86_clang-r547379.git"
+CLANG_DIR="$WORKDIR/toolchains/clang-r547379"
+BINUTILS_DIR="$WORKDIR/toolchains/llvm-binutils-stable"
+ANYKERNEL_DIR="$HOME/AnyKernel3"
 
-# Use system clang/ld.lld if available (GitHub ubuntu-latest runners have them pre-installed)
-# Only clone from LineageOS as fallback when system tools are missing.
-if command -v clang >/dev/null 2>&1 && command -v ld.lld >/dev/null 2>&1; then
-  echo -e "\n✅ \033[1;32mSystem clang and ld.lld found. Using system toolchain.\033[0m"
-  CLANG_PATH=$(dirname "$(command -v clang)")
-  # Find llvm-ar, llvm-nm, etc. alongside clang
-  export LLVM_PATH="$CLANG_PATH"
-else
-  echo -e "\n🔍 \033[1;33mSystem clang/ld.lld not found. Cloning LineageOS toolchain...\033[0m"
-  git config --global --unset url."https://github.com/".insteadOf 2>/dev/null || true
-  git clone --depth=1 --branch lineage-20.0 \
-    https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b.git "$CLANG_DIR" 2>/dev/null || \
-    echo -e "\n⚠️  \033[1;33mClang clone failed, will try system clang.\033[0m"
-  CLANG_PATH=$CLANG_DIR/bin
-  export LLVM_PATH=$CLANG_DIR/bin
-fi
-
-if [ ! -d "$GCC_DIR" ]; then
-  echo -e "\n🔍 \033[1;33mGCC toolchain not found. Cloning...\033[0m"
-  git config --global --unset url."https://github.com/".insteadOf 2>/dev/null || true
-  git clone --depth=1 --branch lineage-24.0 \
-    https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-gnu-9.3.git "$GCC_DIR" 2>/dev/null || \
-    echo -e "\n⚠️  \033[1;33mGCC clone failed, GCC not required for Clang build.\033[0m"
-else
-  echo -e "\n✅ \033[1;32mGCC toolchain already present.\033[0m"
-fi
-
-GCC_PATH=$GCC_DIR/bin
-
-if [ ! -d "$ANYKERNEL_DIR" ]; then
-  echo -e "\n🔍 \033[1;33mAnyKernel3 not found. Cloning...\033[0m"
-  git config --global --unset url."https://github.com/".insteadOf 2>/dev/null || true
-  git clone --depth=1 https://github.com/theshaenix/AnyKernel3.git "$ANYKERNEL_DIR" 2>/dev/null || \
-    echo -e "\n❌ \033[1;31mAnyKernel3 clone failed!\033[0m" && exit 1
-else
-  echo -e "\n✅ \033[1;32mAnyKernel3 folder already present.\033[0m"
-fi
-
-# ============================================================
-# Build Script
-# ============================================================
-
-# Kernel build configuration
-KERNEL_NAME="Bunny-X-Zenith-BakaSU"
 DEVICE="RMX2061"
-VARIANT="perf"
-BUILD_TYPE="KSU"
-VERSION_NUMBER="v1.0.0"
+DEFCONFIG="atoll_defconfig"
+KERNEL_NAME="Bunny-X-Zenith-BakaSU"
+VERSION="v1.0.0"
 
 DATE=$(date +%Y%m%d)
 TIME=$(date +%H%M)
-BASE_ZIPNAME="${KERNEL_NAME}-${VARIANT}-${DEVICE}-${BUILD_TYPE}-${TIME}-${DATE}-${VERSION_NUMBER}"
-ZIPNAME="${BASE_ZIPNAME}.zip"
+ZIPNAME="${KERNEL_NAME}-${DEVICE}-${TIME}-${DATE}-${VERSION}.zip"
 
-# Paths
-export KERNEL_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-export CLANG_PATH
-export GCC_PATH
-export ANYKERNEL_DIR=$ANYKERNEL_DIR
-export OUT_DIR=out
+# ========== EXPORT FULL NAME FOR ARTIFACT ==========
+KERNEL_FULL_NAME="${KERNEL_NAME}-${DEVICE}-${TIME}-${DATE}-${VERSION}"
+if [ -n "$GITHUB_ENV" ]; then
+    echo "KERNEL_FULL_NAME=${KERNEL_FULL_NAME}" >> "$GITHUB_ENV"
+fi
+# ===================================================
 
-export PATH=$CLANG_PATH:$GCC_PATH:$PATH
+# ===================== COLOURS =====================
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[1;34m'
+CYAN='\033[1;36m'
+MAGENTA='\033[1;35m'
+WHITE='\033[1;37m'
+NC='\033[0m'
+# ===================================================
+
+# ===================== CCACHE =====================
+export USE_CCACHE=1
+export CCACHE_DIR="$WORKDIR/.ccache"
+mkdir -p "$CCACHE_DIR"
+ccache -M 15G >/dev/null 2>&1 || true
+
+# ===================== TELEGRAM =====================
+BOT_TOKEN="${TELEGRAM_TOKEN:-}"
+CHAT_ID="${TELEGRAM_CHAT_ID:-}"
+
+send_msg() {
+    if [[ -n "$BOT_TOKEN" && -n "$CHAT_ID" ]]; then
+        curl -s -X POST \
+        "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+        -d chat_id="${CHAT_ID}" \
+        -d parse_mode=HTML \
+        -d text="$1" > /dev/null 2>&1 || true
+    fi
+}
+
+send_file() {
+    if [[ -n "$BOT_TOKEN" && -n "$CHAT_ID" ]]; then
+        curl -s -X POST \
+        "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
+        -F chat_id="${CHAT_ID}" \
+        -F document=@"$1" \
+        -F parse_mode=HTML \
+        -F caption="$2" > /dev/null 2>&1 || true
+    fi
+}
+
+# ===================== TOOLCHAIN =====================
+
+echo ""
+echo -e "${CYAN}========================================${NC}"
+echo -e "${CYAN}    BUNNYX KERNEL BUILD SYSTEM${NC}"
+echo -e "${CYAN}========================================${NC}"
+
+mkdir -p "$WORKDIR/toolchains"
+
+# ===== NEUTRON CLANG =====
+
+NEUTRON_BIN=""
+
+if [ -x "$NEUTRON_DIR/bin/clang" ]; then
+    NEUTRON_BIN="$NEUTRON_DIR/bin"
+    echo -e "${GREEN}Using cached Neutron Clang ${NEUTRON_TAG}${NC}"
+else
+    echo -e "${YELLOW}Downloading Neutron Clang ${NEUTRON_TAG}...${NC}"
+
+    ARCHIVE="$WORKDIR/toolchains/neutron-clang-${NEUTRON_TAG}.tar.zst"
+    EXTRACT_DIR="$WORKDIR/toolchains/neutron-extract-${NEUTRON_TAG}"
+
+    if curl -fL --retry 5 --retry-delay 5 \
+        --connect-timeout 20 \
+        -o "$ARCHIVE" "$NEUTRON_URL" &&
+        mkdir -p "$EXTRACT_DIR" &&
+        tar --zstd -xf "$ARCHIVE" -C "$EXTRACT_DIR"; then
+
+        FOUND_CLANG=$(find "$EXTRACT_DIR" -maxdepth 5 \
+            \( -type f -o -type l \) -path '*/bin/clang' -print -quit)
+
+        if [ -n "$FOUND_CLANG" ]; then
+            NEUTRON_BIN="$(dirname "$FOUND_CLANG")"
+
+            if [ "$NEUTRON_BIN" != "$NEUTRON_DIR/bin" ]; then
+                mkdir -p "$NEUTRON_DIR"
+                cp -a "$NEUTRON_BIN/." "$NEUTRON_DIR/bin/"
+                NEUTRON_BIN="$NEUTRON_DIR/bin"
+            fi
+
+            echo -e "${GREEN}Neutron Clang extracted successfully${NC}"
+        fi
+    fi
+
+    rm -rf "$EXTRACT_DIR"
+    rm -f "$ARCHIVE"
+fi
+
+# ===== FALLBACK CLANG =====
+
+if [ -n "$NEUTRON_BIN" ] && [ -x "$NEUTRON_BIN/clang" ]; then
+    TOOLCHAIN_BIN="$NEUTRON_BIN"
+    echo -e "${GREEN}Selected compiler: Neutron Clang ${NEUTRON_TAG}${NC}"
+else
+    echo -e "${YELLOW}Neutron unavailable; using fallback Clang r547379${NC}"
+
+    if [ ! -d "$CLANG_DIR" ]; then
+        git clone --depth=1 "$CLANG_REPO" "$CLANG_DIR"
+    fi
+
+    if [ ! -x "$CLANG_DIR/bin/clang" ]; then
+        echo -e "${RED}Fallback Clang not found${NC}"
+        exit 1
+    fi
+
+    if [ ! -d "$BINUTILS_DIR" ]; then
+        git clone --depth=1 \
+            https://android.googlesource.com/toolchain/llvm-binutils-stable \
+            "$BINUTILS_DIR"
+    fi
+
+    TOOLCHAIN_BIN="$CLANG_DIR/bin"
+    export PATH="$BINUTILS_DIR/bin:$PATH"
+fi
+
+# ===== PATH AND LLVM TOOLS =====
+
+export PATH="$TOOLCHAIN_BIN:$PATH"
 export ARCH=arm64
+export SUBARCH=arm64
+
+export CC=clang
+export LD=ld.lld
+export AR=llvm-ar
+export NM=llvm-nm
+export STRIP=llvm-strip
+export OBJCOPY=llvm-objcopy
+export OBJDUMP=llvm-objdump
 export CLANG_TRIPLE=aarch64-linux-gnu-
 export CROSS_COMPILE=aarch64-linux-gnu-
 
-# Verify clang is available
-if ! command -v clang >/dev/null 2>&1; then
-  echo -e "\n❌ \033[1;31mclang not found in PATH. Cannot build kernel.\033[0m"
-  exit 1
+# Verify required compiler tools
+for tool in clang ld.lld llvm-ar llvm-nm llvm-strip llvm-objcopy llvm-objdump; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo -e "${RED}Missing LLVM tool: $tool${NC}"
+        exit 1
+    fi
+done
+
+echo -e "${GREEN}Compiler ready${NC}"
+
+# ===================== BUILD INFO BOX =====================
+echo ""
+echo -e "${CYAN}========================================${NC}"
+echo -e "${CYAN}    COMPILER INFORMATION${NC}"
+echo -e "${CYAN}========================================${NC}"
+
+CLANG_VER=$(clang --version | head -n1)
+echo -e "${GREEN}Clang: ${CLANG_VER}${NC}"
+
+LD_VER=$(ld.lld --version | head -n1)
+echo -e "${GREEN}LD:    ${LD_VER}${NC}"
+
+echo ""
+echo -e "${CYAN}========================================${NC}"
+echo -e "${CYAN}    BUILD CONFIGURATION${NC}"
+echo -e "${CYAN}========================================${NC}"
+echo -e "${WHITE}Device:     ${DEVICE}${NC}"
+echo -e "${WHITE}Defconfig:  ${DEFCONFIG}${NC}"
+echo -e "${WHITE}Name:       ${KERNEL_NAME}${NC}"
+echo -e "${WHITE}Version:    ${VERSION}${NC}"
+echo -e "${WHITE}Output:     ${ZIPNAME}${NC}"
+echo -e "${WHITE}Date:       $(date '+%Y-%m-%d %H:%M:%S')${NC}"
+echo -e "${WHITE}Host:       $(uname -n) | $(nproc) cores${NC}"
+echo -e "${CYAN}========================================${NC}"
+
+# ===================== ANYKERNEL3 =====================
+if [ ! -d "$ANYKERNEL_DIR" ]; then
+    echo -e "${YELLOW}Cloning AnyKernel3...${NC}"
+    git clone --depth=1 https://github.com/theshaenix/AnyKernel3.git "$ANYKERNEL_DIR"
 fi
 
-# Allow constrained builders to lower parallelism without editing this script.
-JOBS="${JOBS:-$(nproc)}"
+# ===================== BUILD START =====================
+START=$(date +%s)
 
-# The filtered live output keeps routine builds readable, while build.log keeps
-# the complete compiler output.  When a target fails, show the first failure
-# and the preceding lines from that raw log; this is usually where clang (or a
-# host tool) explains why the subsequent missing-object errors occurred.
-show_first_failure_context() {
-  local failure_line context_start context_end
+send_msg "Build Started
+${DEVICE} | $(nproc) cores | ~10min"
 
-  failure_line=$(grep -n -m1 -E \
-    '(^|: )(fatal )?error:|fatal:|clang:.*(unable|crash)|make(\[[0-9]+\])?: \*\*\*' \
-    "$OUT_DIR/build.log" | cut -d: -f1)
+echo ""
+echo -e "${CYAN}========================================${NC}"
+echo -e "${CYAN}    BUILDING${NC}"
+echo -e "${CYAN}========================================${NC}"
 
-  if [ -n "$failure_line" ]; then
-    context_start=$((failure_line > 40 ? failure_line - 40 : 1))
-    context_end=$((failure_line + 20))
-    echo -e "\n🔎 \033[1;36mFirst failure context from $OUT_DIR/build.log:\033[0m"
-    sed -n "${context_start},${context_end}p" "$OUT_DIR/build.log"
-  fi
-}
+# Minimal cleanup
+rm -f "$ANYKERNEL_DIR/zImage" "$ANYKERNEL_DIR"/*.zip
+rm -rf "$OUT_DIR"
 
-# =====================[ START PROCESS ]=====================
+# Update config
+mkdir -p "$OUT_DIR"
+make O="$OUT_DIR" ARCH=arm64 "$DEFCONFIG" > /dev/null 2>&1
+make O="$OUT_DIR" ARCH=arm64 olddefconfig > /dev/null 2>&1
 
-echo -e "\n🛠️  \033[1;34mStarting Kernel Build: $BASE_ZIPNAME\033[0m"
+# Build with max parallelization
+JOBS=$(($(nproc) * 2))
 
-echo -e "\n🧹 \033[1;33mCleaning output and ccache...\033[0m"
-rm -rf $OUT_DIR/*
-rm -f "$ANYKERNEL_DIR/zImage"
-ccache -C > /dev/null 2>&1
+if ! make -j$JOBS \
+O="$OUT_DIR" \
+ARCH=arm64 \
+CC=clang \
+HOSTCC=gcc \
+HOSTCXX=g++ \
+LD=ld.lld \
+LLVM=1 \
+LLVM_IAS=1 \
+CLANG_TRIPLE=aarch64-linux-gnu- \
+CROSS_COMPILE=aarch64-linux-gnu- \
+2>&1 | tee "$OUT_DIR/build.log"; then
 
-echo -e "\n🔧 \033[1;36mCompiler Info:\033[0m"
-clang --version | head -n 1
-aarch64-linux-gnu-gcc --version | head -n 1
-
-echo -e "\n📱 \033[1;32mTarget Device: $DEVICE\033[0m"
-echo -e "🧵 \033[1;36mParallel build jobs: $JOBS\033[0m"
-
-# =====================[ DEFCONFIG ]=====================
-
-echo -e "\n📄 \033[1;36mSetting up defconfig...\033[0m"
-make O=$OUT_DIR ARCH=arm64 LLVM=1 LLVM_IAS=1 CC=clang LD=ld.lld atoll_defconfig
-
-if [ $? -ne 0 ]; then
-  echo -e "\n❌ \033[1;31mDefconfig failed. Exiting.\033[0m"
-  exit 1
+    echo -e "${RED}Build Failed${NC}"
+    send_msg "Build Failed"
+    send_file "$OUT_DIR/build.log" "Error Log"
+    exit 1
 fi
 
-# =====================[ COMPILING ]=====================
+# ===================== IMAGE CHECK =====================
+IMG="$OUT_DIR/arch/arm64/boot/Image.gz-dtb"
 
-echo -e "\n🚀 \033[1;35mStarting compilation...\033[0m"
-make -j"$JOBS" O=$OUT_DIR \
-  ARCH=arm64 \
-  LLVM=1 \
-  LLVM_IAS=1 \
-  CC=clang \
-  LD=ld.lld \
-  AR=llvm-ar \
-  NM=llvm-nm \
-  OBJCOPY=llvm-objcopy \
-  OBJDUMP=llvm-objdump \
-  STRIP=llvm-strip \
-  CLANG_TRIPLE=$CLANG_TRIPLE \
-  CROSS_COMPILE=$CROSS_COMPILE \
-  2>&1 | tee out/build.log | grep --line-buffered -E \
-  "warning:|error:|fatal:|Killed|No space left|Segmentation fault|clang:.*(unable|crash)|make(\[[0-9]+\])?: \*\*\*" | sed \
-  -e 's/warning:/\x1b[1;33mwarning:\x1b[0m/g' \
-  -e 's/error:/\x1b[1;31merror:\x1b[0m/g'
-
-BUILD_STATUS=${PIPESTATUS[0]}
-if [ "$BUILD_STATUS" -ne 0 ]; then
-  show_first_failure_context
-  echo -e "\n❌ \033[1;31mKernel compilation failed (see $OUT_DIR/build.log).\033[0m"
-  exit "$BUILD_STATUS"
+if [ ! -f "$IMG" ]; then
+    echo -e "${RED}Image not found${NC}"
+    send_msg "Image Missing"
+    exit 1
 fi
 
-# =====================[ CHECK IMAGE ]=====================
+echo -e "${GREEN}Image: $(du -h "$IMG" | cut -f1)${NC}"
 
-KERNEL_IMG=$OUT_DIR/arch/arm64/boot/Image.gz-dtb
-if [ ! -f "$KERNEL_IMG" ]; then
-  echo -e "\n❌ \033[1;31mBuild failed: Image.gz-dtb not found!\033[0m"
-  exit 1
-fi
+# ===================== PACKAGING =====================
+echo ""
+echo -e "${CYAN}========================================${NC}"
+echo -e "${CYAN}    PACKAGING${NC}"
+echo -e "${CYAN}========================================${NC}"
 
-echo -e "\n✅ \033[1;32mKernel image compiled successfully.\033[0m"
+cp "$IMG" "$ANYKERNEL_DIR/zImage"
 
-# =====================[ PACKAGING ]=====================
+cd "$ANYKERNEL_DIR"
+zip -r9q "$ZIPNAME" * -x ".git*" README.md "*.zip"
 
-echo -e "\n📦 \033[1;34mPacking kernel into flashable zip...\033[0m"
-cp "$KERNEL_IMG" "$ANYKERNEL_DIR/zImage"
+ZIP_SIZE=$(du -h "$ZIPNAME" | cut -f1)
+echo -e "${GREEN}ZIP: $ZIP_SIZE${NC}"
 
-cd $ANYKERNEL_DIR || exit 1
-zip -r9 "$ZIPNAME" * -x "*.zip" "*.git*" README.md > /dev/null
+# ===================== FINISH =====================
+END=$(date +%s)
+DIFF=$((END - START))
+MINS=$((DIFF / 60))
+SECS=$((DIFF % 60))
 
-if [ $? -eq 0 ]; then
-  echo -e "\n🎉 \033[1;32mFlashable zip created: $ANYKERNEL_DIR/$ZIPNAME\033[0m"
-else
-  echo -e "\n❌ \033[1;31mFailed to create zip.\033[0m"
-  exit 1
-fi
+echo ""
+echo -e "${GREEN}========================================${NC}"
+echo -e "${GREEN}    BUILD COMPLETE!${NC}"
+echo -e "${GREEN}========================================${NC}"
+echo -e "${WHITE}Output: ${ZIPNAME}${NC}"
+echo -e "${WHITE}Size:   ${ZIP_SIZE}${NC}"
+echo -e "${WHITE}Time:   ${MINS}m ${SECS}s${NC}"
+echo -e "${GREEN}========================================${NC}"
+
+send_file "$ANYKERNEL_DIR/$ZIPNAME" \
+"Build Success
+
+${ZIPNAME}
+Size: ${ZIP_SIZE}
+Time: ${MINS}m ${SECS}s"
+
+# Move to out for artifact
+mv "$ANYKERNEL_DIR/$ZIPNAME" "$OUT_DIR/"
+
+echo -e "${GREEN}Zip saved to: ${OUT_DIR}/${ZIPNAME}${NC}"
