@@ -28,7 +28,7 @@
 #include <linux/ima.h>
 #include <linux/syscalls.h>
 #include <linux/mount.h>
-#include <linux/susfs_hooks.h>
+#include "susfs_hooks.h"
 #include <linux/audit.h>
 #include <linux/capability.h>
 #include <linux/file.h>

@@ -20,7 +20,7 @@
 
 #include <linux/uaccess.h>
 #include <asm/unistd.h>
-#include <linux/susfs_hooks.h>
+#include "susfs_hooks.h"
 
 /**
  * generic_fillattr - Fill in the basic attributes from the inode struct

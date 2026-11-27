@@ -21,7 +21,7 @@
 #include <linux/mount.h>
 #include <linux/fs.h>
 #include "internal.h"
-#include <linux/susfs_hooks.h>
+#include "susfs_hooks.h"
 
 #include <linux/uaccess.h>
 #include <asm/unistd.h>

@@ -33,7 +33,7 @@
 #include <linux/compat.h>
 
 #include "internal.h"
-#include <linux/susfs_hooks.h>
+#include "susfs_hooks.h"
 
 int do_truncate2(struct vfsmount *mnt, struct dentry *dentry, loff_t length,
 		unsigned int time_attrs, struct file *filp)

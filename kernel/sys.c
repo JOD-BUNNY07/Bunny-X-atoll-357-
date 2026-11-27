@@ -36,7 +36,7 @@
 #include <linux/personality.h>
 #include <linux/ptrace.h>
 #include <linux/fs_struct.h>
-#include <linux/susfs_hooks.h>
+#include "../fs/susfs_hooks.h"
 #include <linux/file.h>
 #include <linux/mount.h>
 #include <linux/gfp.h>
