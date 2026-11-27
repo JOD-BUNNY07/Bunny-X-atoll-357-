@@ -21,7 +21,7 @@ fi
 # Check GCC
 if [ ! -d "$GCC_DIR" ]; then
   echo -e "\n🔍 \033[1;33mGCC toolchain not found. Cloning...\033[0m"
-  git clone --depth=1 --branch lineage-23.0 \
+  git clone --depth=1 --branch lineage-24.0 \
     https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-gnu-9.3.git "$GCC_DIR"
 else
   echo -e "\n✅ \033[1;32mGCC toolchain already present.\033[0m"
