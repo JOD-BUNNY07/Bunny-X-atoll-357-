@@ -30,7 +30,7 @@ int susfs_hook_path_lookup(struct path *path, unsigned int flags)
 }
 
 /* Getattr hook */
-int susfs_hook_getattr(struct path *path, struct kstat *stat,
+int susfs_hook_getattr(const struct path *path, struct kstat *stat,
 		       u32 request_mask, unsigned int flags)
 {
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT

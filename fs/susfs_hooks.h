@@ -14,7 +14,7 @@
 extern int susfs_hook_path_lookup(struct path *path, unsigned int flags);
 
 /* Getattr hook - intercepts stat/fstat/lstat */
-extern int susfs_hook_getattr(struct path *path, struct kstat *stat,
+extern int susfs_hook_getattr(const struct path *path, struct kstat *stat,
 			      u32 request_mask, unsigned int flags);
 
 /* Exec hook - intercepts execve/execveat */
