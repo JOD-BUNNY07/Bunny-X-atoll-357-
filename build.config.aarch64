@@ -1,7 +1,12 @@
 ARCH=arm64
 
+CC=clang
+LD=ld.lld
 CROSS_COMPILE=aarch64-linux-gnu-
 LINUX_GCC_CROSS_COMPILE_PREBUILTS_BIN=prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin
+
+KBUILD_BUILD_USER=Jod
+KBUILD_BUILD_HOST=@Bunny
 
 FILES="
 arch/arm64/boot/Image
