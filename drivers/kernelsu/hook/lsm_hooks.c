@@ -13,6 +13,7 @@
 
 #include <linux/version.h>
 #include <linux/security.h>
+#include <linux/lsm_hooks.h>
 #include <linux/init.h>
 #include <linux/sched.h>
 #include <linux/cred.h>
