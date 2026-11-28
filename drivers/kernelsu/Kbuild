@@ -252,13 +252,23 @@ MDIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 REPO_OWNER  := KazeSU
 REPO_NAME   := KazeSU
 
-# Hardcoded KazeSU version (git detection removed)
+# KazeSU upstream metadata
+# Fixed version for standalone integrated KazeSU source
+KSU_LOCAL_VERSION := 4064
 KSU_VERSION := 35060
-KSU_VERSION_FULL := "KazeSU_v1.0.1_35060"
+KSU_TAG_NAME := V1.0.1
+KSU_COMMIT_SHA :=
+KSU_BRANCH_NAME := main
+
+KSU_VERSION_FULL := $(KSU_TAG_NAME)_$(KSU_VERSION)
 
 $(info -- $(REPO_NAME) version: $(KSU_VERSION) [$(KSU_VERSION_FULL)])
 
 ccflags-y += -DKSU_VERSION=$(KSU_VERSION)
+ccflags-y += -DKSU_LOCAL_VERSION=$(KSU_LOCAL_VERSION)
+ccflags-y += -DKSU_TAG_NAME=\"$(KSU_TAG_NAME)\"
+ccflags-y += -DKSU_COMMIT_SHA=\"$(KSU_COMMIT_SHA)\"
+ccflags-y += -DKSU_BRANCH_NAME=\"$(KSU_BRANCH_NAME)\"
 ccflags-y += -DKSU_VERSION_FULL=\"$(KSU_VERSION_FULL)\"
 
 KSU_IS_PR_BUILD ?= 0
