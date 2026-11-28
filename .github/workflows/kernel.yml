@@ -48,7 +48,7 @@ jobs:
         with:
           ref: ${{ env.BRANCH }}
           fetch-depth: 0
-          token: ${{ secrets.PAT_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup build environment
         run: |
