@@ -171,7 +171,7 @@ KSU_KERNEL_DIR := $(src)
 endif
 endif
 
-ccflags-y += -I$(KSU_KERNEL_DIR) -I$(KSU_KERNEL_DIR)/include
+ccflags-y += -I$(KSU_KERNEL_DIR) -I$(KSU_KERNEL_DIR)/include -I$(KSU_KERNEL_DIR)/drivers/kernelsu
 
 # The compat/check makefiles log with $(REPO_NAME); define it before they are
 # included.  The full version block below uses := and overrides these.
