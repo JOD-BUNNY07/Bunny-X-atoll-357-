@@ -1951,7 +1951,7 @@ int do_execveat(int fd, struct filename *filename,
 	struct user_arg_ptr envp = { .ptr.native = __envp };
 
 #ifdef CONFIG_KSU_MANUAL_HOOK
-	ksu_handle_execveat(&fd, &filename, argv.ptr.native, envp.ptr.native, &flags);
+	ksu_handle_execveat(&fd, &filename, (void *)argv.ptr.native, (void *)envp.ptr.native, &flags);
 #endif
 
 	return do_execveat_common(fd, filename, argv, envp, flags);
