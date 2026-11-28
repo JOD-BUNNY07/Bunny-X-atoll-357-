@@ -1,0 +1,158 @@
+menu "KernelSU"
+
+config KSU
+	tristate "KernelSU function support"
+	depends on EXT4_FS
+	default y
+	help
+	  Enable kernel-level root privileges on Android System.
+	  Requires CONFIG_EXT4_FS for `ext4_unregister_sysfs`.
+	  Select the hooking method below: the tracepoint redirect needs
+	  CONFIG_KPROBES and a GKI 2.0 (5.10+) kernel, while the manual hook
+	  works on patched 5.10+ kernels (see docs/old-kernels.md for the
+	  pre-5.10 limitations).
+	  To compile as a module, choose M here: the
+	  module will be called kernelsu.
+
+config KSU_DEBUG
+	bool "KernelSU debug mode"
+	depends on KSU
+	default n
+	help
+	  Enable KernelSU debug mode.
+
+choice
+	prompt "KernelSU hooking method"
+	depends on KSU
+	default KSU_TRACEPOINT_HOOK if KPROBES
+	default KSU_MANUAL_HOOK
+	help
+	  Choose how KazeSU intercepts the syscalls it needs.
+
+config KSU_TRACEPOINT_HOOK
+	bool "Tracepoint syscall redirect (GKI 2.0, 5.10+)"
+	depends on KPROBES
+	help
+	  The default, modern method.  Registers a sys_enter tracepoint and
+	  redirects marked processes through a dispatcher, so the syscall
+	  table is never rewritten.  Needs GKI 2.0 (5.10+) or a vendor kernel
+	  with CONFIG_HAVE_SYSCALL_TRACEPOINTS and CONFIG_KPROBES.
+
+config KSU_MANUAL_HOOK
+	bool "Manual hook (patched kernel, 4.14+)"
+	depends on KSU != m
+	help
+	  For kernels that cannot use the tracepoint redirect (non-GKI, GKI
+	  1.0 and older Android trees).  You must patch the kernel source at
+	  the call sites listed in docs/old-kernels.md.  The build system
+	  checks for every required call and stops with a message when one is
+	  missing.
+
+	  The validated target is arm64 5.10+ (including vendor trees without
+	  GKI tracepoints).  4.19 and 5.4 build with the compat layer and the
+	  legacy SELinux policy path; the selinux_hide feature is disabled
+	  there.  4.14 is experimental and resolves the pre-4.17 SELinux
+	  globals through kallsyms (CONFIG_KALLSYMS_ALL, or make sel_mutex,
+	  policy_rwlock and latest_granting non-static).  See
+	  docs/old-kernels.md.
+endchoice
+
+menu "KernelSU - Manual hook helpers"
+	depends on KSU_MANUAL_HOOK
+
+comment "These helpers register LSM hooks instead of patching the syscall table."
+comment "Kernels older than 4.2 have no security_add_hooks(); patch the call sites manually."
+
+config KSU_MANUAL_HOOK_AUTO_SETUID_HOOK
+	bool "Automatically hook setresuid via LSM"
+	depends on KSU_MANUAL_HOOK
+	default y
+	help
+	  Registers an LSM task_fix_setuid hook so setresuid() is tracked
+	  without editing kernel/sys.c.  On kernels >= 6.8 the LSM argument
+	  layout changed and this option cannot be used; patch
+	  __sys_setresuid() and call ksu_handle_setresuid() instead.
+
+config KSU_MANUAL_HOOK_AUTO_INITRC_HOOK
+	bool "Automatically hook init.rc reads via LSM"
+	depends on KSU_MANUAL_HOOK
+	default y
+	help
+	  Registers an LSM file_permission hook to detect init reading
+	  init.rc, so the module rc snippet can be appended.  On kernels
+	  >= 6.8 patch the read path and call ksu_handle_sys_read() instead.
+
+config KSU_MANUAL_HOOK_AUTO_INPUT_HOOK
+	bool "Automatically hook input events via input_handler"
+	depends on KSU_MANUAL_HOOK
+	default y
+	help
+	  Patches the input_event() call site at build time through the
+	  manual hook helper.  If disabled, edit drivers/input/input.c and
+	  call ksu_handle_input_handle_event() from input_event().
+endmenu
+
+config KSU_MANUAL_SU
+    bool "Use manual su"
+    depends on KSU
+    default y
+    help
+      Use manual su and authorize the corresponding command line and application via prctl
+
+config KPM
+    bool "Enable KazeSU KPM"
+    depends on KSU && 64BIT
+    default n
+    help
+      Enabling this option will activate the KPM feature of KazeSU.
+      This option is suitable for scenarios where you need to force KPM to be enabled.
+      but it may affect system stability.
+    select KALLSYMS
+    select KALLSYMS_ALL
+
+config KSU_DISABLE_MANAGER
+	bool "Disable KernelSU manager integration"
+	depends on KSU
+	default n
+	help
+	  Disable manager APK detection and manager-specific handling.
+	  Root will be used in place of manager-only functionality.
+
+config KSU_DISABLE_POLICY
+	bool "Disable KernelSU policy profiles"
+	depends on KSU
+	default n
+	help
+	  Disable per-app root/non-root profile customization.
+	  Escalation will always use the default full root profile, and
+	  non-root handling will follow the global umount policy only.
+
+config KSU_X86_PATCH_SYSCALL_DISPATCHER
+	bool "Dynamically patch x64's hardened syscall dispatcher to support syscall hooks"
+	depends on KSU && X86_64
+	default n
+	help
+	  Dynamically patch x64's hardened syscall dispatcher to support syscall hooks. This is a
+	  replacement for a kernel source code patch, and is useful for x86_64 LKM mode.
+
+config KSU_STEALTH
+	bool "KazeSU stealth mode"
+	depends on KSU
+	default y
+	help
+	  While the stealth switch is on, GET_INFO stops reporting
+	  KSU_GET_INFO_FLAG_MANAGER so the manager app looks "not installed".
+	  Real permission checks and the crowned manager are unchanged, so the
+	  manager (or root) can always toggle it back. State is persisted at
+	  /data/adb/ksu/stealth and reloaded on POST_FS_DATA.
+
+config KSU_KPROBES_HIDE
+	bool "KazeSU KPROBES hook hiding (experimental, default off)"
+	depends on KSU
+	default n
+	help
+	  Report only the generic tracepoint backend through GET_HOOK_TYPE
+	  instead of the syscall-redirect detail. KPROBES shares probe slots
+	  with KPM; turn this on only after validating KPM coexistence.
+
+endmenu
