@@ -607,7 +607,7 @@ done:
 
 void __init ksu_file_wrapper_init(void)
 {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 16, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0) && LINUX_VERSION_CODE < KERNEL_VERSION(5, 16, 0)
     static const struct file_operations tmp = { .owner = THIS_MODULE };
     struct file *dummy = anon_inode_getfile("dummy", &tmp, NULL, 0);
     if (IS_ERR(dummy)) {
