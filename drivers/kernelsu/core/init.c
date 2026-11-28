@@ -27,9 +27,7 @@
 #include "ksu.h"
 #include "infra/file_wrapper.h"
 #include "selinux/selinux.h"
-#ifndef CONFIG_KSU_MANUAL_HOOK
 #include "hook/syscall_hook.h"
-#endif
 #include "feature/adb_root.h"
 #include "feature/selinux_hide.h"
 #include "feature/avc_spoof.h"
