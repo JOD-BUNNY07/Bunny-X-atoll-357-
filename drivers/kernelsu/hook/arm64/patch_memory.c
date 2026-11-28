@@ -5,6 +5,8 @@
 
 #ifdef __aarch64__
 
+#include <linux/string.h>
+
 #include "../patch_memory.h"
 #include "klog.h" // IWYU pragma: keep
 #include "linux/cpumask.h"
@@ -69,7 +71,7 @@ unsigned long phys_from_virt(unsigned long addr, int *err)
     if (!pte_present(*pte))
         goto fail;
 
-    return __pte_to_phys(*pte) + ((addr & ~PAGE_MASK));
+    return (phys_addr_t)(pte_val(*pte) & PHYS_MASK) + ((addr & ~PAGE_MASK));
 
 fail:
     *err = -ENOENT;
@@ -92,7 +94,7 @@ fail:
 #define ksu_flush_icache(start, end) caches_clean_inval_pou(start, end)
 #else
 #define ksu_flush_dcache(start, sz) __flush_dcache_area((void *)start, sz)
-#define ksu_flush_icache(start, end) __flush_icache_range(start, end)
+#define ksu_flush_icache(start, end) flush_icache_range(start, end)
 #endif
 
 struct patch_text_info {
@@ -136,7 +138,7 @@ static int ksu_patch_text_nosync(void *dst, void *src, size_t len, int flags)
 
     void *map = set_fixmap_offset(FIX_TEXT_POKE0, phy);
 
-    ret = (int)copy_to_kernel_nofault(map, src, len);
+    ret = (int)memcpy(map, src, len);
 
     clear_fixmap(FIX_TEXT_POKE0);
 
