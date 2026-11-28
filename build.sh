@@ -180,7 +180,7 @@ echo -e "${CYAN}========================================${NC}"
 CLANG_VER=$(clang --version | head -n1)
 echo -e "${GREEN}Clang: ${CLANG_VER}${NC}"
 
-GCC_VER=$(aarch64-linux-gnu-gcc --version | head -n1)
+GCC_VER=$(aarch64-linux-gnu-gcc --version 2>/dev/null | head -n1) || GCC_VER="not installed (host gcc used)"
 echo -e "${GREEN}GCC:   ${GCC_VER}${NC}"
 
 LD_VER=$(ld.lld --version | head -n1)
@@ -222,10 +222,27 @@ echo -e "${CYAN}========================================${NC}"
 # Minimal cleanup
 rm -f "$ANYKERNEL_DIR/zImage" "$ANYKERNEL_DIR"/*.zip
 
+# Ensure source tree is clean (removes any leftover .config, generated files)
+make ARCH=arm64 mrproper > /dev/null 2>&1 || true
+
 # Update config
 mkdir -p "$OUT_DIR"
 make O="$OUT_DIR" ARCH=arm64 "$DEFCONFIG" > /dev/null 2>&1
 make O="$OUT_DIR" ARCH=arm64 olddefconfig > /dev/null 2>&1
+
+# Apply custom kernel settings
+SCRIPTS_CONFIG="$WORKDIR/scripts/config"
+if [ -x "$SCRIPTS_CONFIG" ]; then
+    $SCRIPTS_CONFIG --file "$OUT_DIR/.config" --set-str LOCALVERSION "-Bunny X KazeSU"
+    $SCRIPTS_CONFIG --file "$OUT_DIR/.config" --set-str DEFAULT_HOSTNAME "Jod Bunny"
+    $SCRIPTS_CONFIG --file "$OUT_DIR/.config" --enable KSU
+    $SCRIPTS_CONFIG --file "$OUT_DIR/.config" --enable KSU_MANUAL_HOOK
+    $SCRIPTS_CONFIG --file "$OUT_DIR/.config" --enable KSU_STEALTH
+    $SCRIPTS_CONFIG --file "$OUT_DIR/.config" --enable CGROUPS
+    $SCRIPTS_CONFIG --file "$OUT_DIR/.config" --enable SECURITY_NETWORK
+    $SCRIPTS_CONFIG --file "$OUT_DIR/.config" --disable KSU_SUSFS
+    make O="$OUT_DIR" ARCH=arm64 olddefconfig > /dev/null 2>&1
+fi
 
 # Build with max parallelization
 JOBS=$(($(nproc) * 2))
